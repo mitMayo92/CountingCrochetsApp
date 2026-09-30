@@ -1,4 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512">
+  <defs>
+    <!-- Eine Häkelnadel, senkrecht, Haken oben rechts -->
+    <g id="hook">
+      <!-- Schaft mit Hakenkopf und Kehle in einem Umriss -->
+      <path d="M241 445 V78 Q241 56 258 54 Q276 54 277 72 Q277 80 270 84
+               L254 100 Q252 104 256 106 L271 106 V445 Q271 460 256 460 Q241 460 241 445 Z"/>
+      <!-- Daumenauflage -->
+      <rect x="231" y="300" width="50" height="86" rx="16"/>
+    </g>
+  </defs>
   <rect width="512" height="512" fill="#000"/>
-  <text x="256" y="330" font-family="Helvetica, Arial, sans-serif" font-size="260" font-weight="300" fill="#fff" text-anchor="middle">14</text>
+  <use xlink:href="#hook" fill="#fff" transform="rotate(-38 256 256)"/>
+  <!-- Schwarzer Rand der oberen Nadel erzeugt die Lücke an der Kreuzung -->
+  <use xlink:href="#hook" fill="#000" stroke="#000" stroke-width="22" stroke-linejoin="round"
+       transform="rotate(38 256 256) translate(512 0) scale(-1 1)"/>
+  <use xlink:href="#hook" fill="#fff" transform="rotate(38 256 256) translate(512 0) scale(-1 1)"/>
 </svg>
