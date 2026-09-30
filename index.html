@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Runden">
+  <title>Rundenzähler</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <style>
+    :root {
+      --bg: #000;
+      --fg: #fff;
+      --muted: #8a8a8a;
+      --line: #2a2a2a;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overscroll-behavior: none;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+    button {
+      font: inherit;
+      color: var(--fg);
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      cursor: pointer;
+    }
+    .screen {
+      position: fixed;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+    }
+    .screen.active { display: flex; }
+
+    /* Einstellung */
+    #setup h1 { font-weight: 500; font-size: 1.4rem; color: var(--muted); margin: 0 0 24px; }
+    .stepper { display: flex; align-items: center; gap: 20px; }
+    .stepper button { width: 72px; height: 72px; font-size: 2.4rem; line-height: 1; }
+    #lengthValue {
+      font-size: 6rem; font-weight: 300; min-width: 2.2ch; text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    #setup .hint { color: var(--muted); margin: 8px 0 40px; }
+    #startBtn {
+      background: var(--fg); color: var(--bg); border: none;
+      font-size: 1.4rem; font-weight: 600; padding: 18px 56px; border-radius: 40px;
+    }
+
+    /* Zählen: die ganze Fläche ist die Taste */
+    #counter { cursor: pointer; }
+    #setLabel { position: absolute; top: calc(env(safe-area-inset-top) + 20px); color: var(--muted); font-size: 1.1rem; }
+    #count {
+      font-size: min(45vw, 40vh); font-weight: 200; line-height: 1;
+      font-variant-numeric: tabular-nums; transition: transform .08s;
+    }
+    #count.bump { transform: scale(1.06); }
+    #total { font-size: min(9vw, 7vh); color: var(--muted); margin-top: 8px; font-variant-numeric: tabular-nums; }
+    #message { font-size: 1.3rem; margin-top: 28px; min-height: 1.6em; text-align: center; color: var(--muted); }
+    #counter.done #count { color: var(--fg); }
+    #counter.done #message { color: var(--fg); font-weight: 600; }
+    .progress {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: var(--line);
+    }
+    .progress > div { height: 100%; width: 0; background: var(--fg); transition: width .2s; }
+    .corner {
+      position: absolute; bottom: calc(env(safe-area-inset-bottom) + 24px);
+      padding: 14px 20px; font-size: 1rem; color: var(--muted);
+    }
+    #undoBtn { left: 16px; }
+    #menuBtn { right: 16px; }
+
+    /* Menü */
+    #menu { background: rgba(0,0,0,.94); z-index: 10; gap: 14px; }
+    #menu button { width: min(320px, 100%); padding: 18px; font-size: 1.15rem; }
+  </style>
+</head>
+<body>
+
+  <section id="setup" class="screen">
+    <h1>Wie viele Runden hat der Satz?</h1>
+    <div class="stepper">
+      <button id="minusBtn" aria-label="Weniger">−</button>
+      <div id="lengthValue">14</div>
+      <button id="plusBtn" aria-label="Mehr">+</button>
+    </div>
+    <div class="hint">Runden pro Satz</div>
+    <button id="startBtn">Start</button>
+  </section>
+
+  <section id="counter" class="screen" aria-live="polite">
+    <div id="setLabel">Satz 1</div>
+    <div id="count">0</div>
+    <div id="total">von 14</div>
+    <div id="message">Irgendwo tippen = Runde fertig</div>
+    <button id="undoBtn" class="corner" aria-label="Letzte Runde zurücknehmen">↶ Zurück</button>
+    <button id="menuBtn" class="corner" aria-label="Menü">Menü</button>
+    <div class="progress"><div id="bar"></div></div>
+  </section>
+
+  <section id="menu" class="screen">
+    <button id="resumeBtn">Weiterzählen</button>
+    <button id="restartSetBtn">Satz neu beginnen</button>
+    <button id="changeLengthBtn">Rundenanzahl ändern</button>
+  </section>
+
+  <script>
+    const STORAGE_KEY = 'rundenzaehler-v1';
+    const MIN_TAP_GAP_MS = 350; // schützt vor versehentlichem Doppeltipp
+
+    const state = load() || { length: 14, count: 0, set: 1, screen: 'setup' };
+    let lastTap = 0;
+    let wakeLock = null;
+
+    const $ = id => document.getElementById(id);
+
+    function load() {
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; }
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+
+    function show(name) {
+      for (const s of document.querySelectorAll('.screen')) s.classList.toggle('active', s.id === name);
+      if (name !== 'menu') state.screen = name;
+      save();
+      if (name === 'counter') requestWakeLock();
+    }
+
+    function render() {
+      $('lengthValue').textContent = state.length;
+      $('count').textContent = state.count;
+      $('total').textContent = 'von ' + state.length;
+      $('setLabel').textContent = 'Satz ' + state.set;
+      $('bar').style.width = (100 * state.count / state.length) + '%';
+      const done = state.count >= state.length;
+      $('counter').classList.toggle('done', done);
+      $('message').textContent = done
+        ? 'Satz fertig! Tippen für nächsten Satz'
+        : state.count === 0 ? 'Irgendwo tippen = Runde fertig' : '';
+      $('undoBtn').style.visibility = (state.count > 0 || state.set > 1) ? 'visible' : 'hidden';
+    }
+
+    function feedback(pattern) {
+      if (navigator.vibrate) navigator.vibrate(pattern);
+    }
+
+    function tap() {
+      const now = Date.now();
+      if (now - lastTap < MIN_TAP_GAP_MS) return;
+      lastTap = now;
+
+      if (state.count >= state.length) {
+        // Satz war fertig -> nächster Satz beginnt
+        state.set += 1;
+        state.count = 0;
+        feedback(30);
+      } else {
+        state.count += 1;
+        feedback(state.count >= state.length ? [80, 80, 80, 80, 200] : 30);
+      }
+      const c = $('count');
+      c.classList.add('bump');
+      setTimeout(() => c.classList.remove('bump'), 90);
+      save();
+      render();
+    }
+
+    function undo() {
+      if (state.count > 0) {
+        state.count -= 1;
+      } else if (state.set > 1) {
+        state.set -= 1;
+        state.count = state.length;
+      }
+      feedback(15);
+      save();
+      render();
+    }
+
+    async function requestWakeLock() {
+      try {
+        if ('wakeLock' in navigator && !wakeLock) {
+          wakeLock = await navigator.wakeLock.request('screen');
+          wakeLock.addEventListener('release', () => { wakeLock = null; });
+        }
+      } catch {}
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && state.screen === 'counter') requestWakeLock();
+    });
+
+    // Einstellung
+    function setLength(n) { state.length = Math.max(1, Math.min(999, n)); render(); save(); }
+    let repeatTimer = null;
+    function holdRepeat(btn, delta) {
+      const stop = () => { clearInterval(repeatTimer); clearTimeout(repeatTimer); };
+      btn.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        setLength(state.length + delta);
+        repeatTimer = setTimeout(() => {
+          repeatTimer = setInterval(() => setLength(state.length + delta), 80);
+        }, 400);
+      });
+      ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => btn.addEventListener(ev, stop));
+    }
+    holdRepeat($('minusBtn'), -1);
+    holdRepeat($('plusBtn'), +1);
+
+    $('startBtn').addEventListener('click', () => {
+      state.count = 0;
+      state.set = 1;
+      render();
+      show('counter');
+    });
+
+    // Zählen: ganze Fläche
+    $('counter').addEventListener('pointerdown', e => {
+      if (e.target.closest('button')) return;
+      e.preventDefault();
+      tap();
+    });
+    // Tastatur / Fernbedienung / Bluetooth-Auslöser (senden meist Leertaste, Enter oder Lautstärke-/Pfeiltasten)
+    document.addEventListener('keydown', e => {
+      if (state.screen !== 'counter' || $('menu').classList.contains('active')) return;
+      if ([' ', 'Enter', 'ArrowRight', 'ArrowUp', 'PageDown', 'AudioVolumeUp', 'AudioVolumeDown'].includes(e.key)) {
+        e.preventDefault();
+        tap();
+      } else if (['Backspace', 'ArrowLeft', 'ArrowDown', 'PageUp'].includes(e.key)) {
+        e.preventDefault();
+        undo();
+      }
+    });
+
+    $('undoBtn').addEventListener('click', e => { e.stopPropagation(); undo(); });
+    $('menuBtn').addEventListener('click', e => { e.stopPropagation(); show('menu'); });
+
+    // Menü
+    $('resumeBtn').addEventListener('click', () => show('counter'));
+    $('restartSetBtn').addEventListener('click', () => { state.count = 0; save(); render(); show('counter'); });
+    $('changeLengthBtn').addEventListener('click', () => show('setup'));
+
+    render();
+    show(state.screen === 'counter' ? 'counter' : 'setup');
+
+    if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+  </script>
+</body>
+</html>
