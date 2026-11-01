@@ -1,0 +1,116 @@
+# Nestzeit – Home Assistant Theme
+# Dunkel: Midnight Abyss mit Aqua-Jade-Leuchten von unten, Baby Pink als Akzent.
+# Hell:   Marshmallow White mit Pink-Violett-Leuchten, Schrift in Midnight Abyss.
+# Ablage: /config/themes/nestzeit.yaml  (frontend: themes: !include_dir_merge_named themes)
+Nestzeit:
+  card-mod-theme: Nestzeit
+  # Mattglas wie in der Nestzeit-Seite – wirkt nur, wenn card-mod installiert ist
+  card-mod-card: |
+    ha-card { backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  ha-card-border-radius: "16px"
+  ha-card-border-width: "1px"
+
+  modes:
+    dark:
+      # Markenfarben
+      primary-color: "#74FFED"
+      rgb-primary-color: "116, 255, 237"
+      accent-color: "#FE81D1"
+      rgb-accent-color: "254, 129, 209"
+      text-primary-color: "#171F44"
+      text-accent-color: "#171F44"
+
+      # Flächen
+      primary-background-color: "#171F44"
+      secondary-background-color: "#1A2350"
+      lovelace-background: >-
+        radial-gradient(ellipse 100% 60% at 50% 110%, rgba(116, 255, 237, 0.55), rgba(60, 170, 190, 0.22) 45%, transparent 78%) fixed,
+        radial-gradient(ellipse 45% 35% at 85% 95%, rgba(254, 129, 209, 0.16), transparent 70%) fixed,
+        radial-gradient(ellipse 70% 40% at 50% -10%, rgba(64, 84, 170, 0.45), transparent 70%) fixed,
+        #171F44
+      ha-card-background: "rgba(255, 255, 255, 0.055)"
+      card-background-color: "#1A2350"
+      ha-dialog-surface-background: "#1A2350"
+      mdc-theme-surface: "#1A2350"
+      ha-card-border-color: "rgba(116, 255, 237, 0.16)"
+      ha-card-box-shadow: "0 0 0 1px rgba(116, 255, 237, 0.05), 0 12px 32px rgba(3, 6, 20, 0.35)"
+      divider-color: "rgba(255, 255, 255, 0.1)"
+
+      # Schrift
+      primary-text-color: "#F4F7FF"
+      secondary-text-color: "#A9B3D6"
+      disabled-text-color: "#65709E"
+
+      # Kopfzeile & Seitenleiste
+      app-header-background-color: "#171F44"
+      app-header-text-color: "#F4F7FF"
+      sidebar-background-color: "#141B3D"
+      sidebar-text-color: "#A9B3D6"
+      sidebar-icon-color: "#A9B3D6"
+      sidebar-selected-text-color: "#74FFED"
+      sidebar-selected-icon-color: "#74FFED"
+
+      # Zustände
+      state-icon-color: "#A9B3D6"
+      state-active-color: "#FE81D1"
+      switch-checked-color: "#74FFED"
+      switch-checked-button-color: "#74FFED"
+      switch-checked-track-color: "#74FFED"
+
+      # Signalfarben
+      error-color: "#FF6B8A"
+      warning-color: "#FF9F0A"
+      success-color: "#2FCFB9"
+      info-color: "#64D2FF"
+
+    light:
+      # Markenfarben
+      primary-color: "#171F44"
+      rgb-primary-color: "23, 31, 68"
+      accent-color: "#FE81D1"
+      rgb-accent-color: "254, 129, 209"
+      text-primary-color: "#FFFFFF"
+      text-accent-color: "#171F44"
+
+      # Flächen
+      primary-background-color: "#F0F0F0"
+      secondary-background-color: "#FAFAFC"
+      lovelace-background: >-
+        radial-gradient(ellipse 70% 60% at 10% 110%, rgba(254, 129, 209, 0.75), rgba(254, 129, 209, 0.2) 50%, transparent 75%) fixed,
+        radial-gradient(ellipse 80% 60% at 60% 115%, rgba(91, 63, 240, 0.5), rgba(91, 63, 240, 0.12) 50%, transparent 75%) fixed,
+        radial-gradient(ellipse 80% 40% at 50% -10%, rgba(255, 255, 255, 0.9), transparent 70%) fixed,
+        #F0F0F0
+      ha-card-background: "rgba(255, 255, 255, 0.7)"
+      card-background-color: "#FFFFFF"
+      ha-dialog-surface-background: "#FAFAFC"
+      mdc-theme-surface: "#FAFAFC"
+      ha-card-border-color: "rgba(255, 255, 255, 0.95)"
+      ha-card-box-shadow: "0 1px 2px rgba(23, 31, 68, 0.04), 0 10px 30px rgba(23, 31, 68, 0.08)"
+      divider-color: "rgba(23, 31, 68, 0.09)"
+
+      # Schrift
+      primary-text-color: "#171F44"
+      secondary-text-color: "#5E6688"
+      disabled-text-color: "#A6ACC4"
+
+      # Kopfzeile & Seitenleiste
+      app-header-background-color: "#F0F0F0"
+      app-header-text-color: "#171F44"
+      sidebar-background-color: "#FAFAFC"
+      sidebar-text-color: "#5E6688"
+      sidebar-icon-color: "#5E6688"
+      sidebar-selected-text-color: "#C2187F"
+      sidebar-selected-icon-color: "#C2187F"
+
+      # Zustände
+      state-icon-color: "#5E6688"
+      state-active-color: "#FE81D1"
+      switch-checked-color: "#FE81D1"
+      switch-checked-button-color: "#FE81D1"
+      switch-checked-track-color: "#FE81D1"
+
+      # Signalfarben
+      error-color: "#D70015"
+      warning-color: "#C55A00"
+      success-color: "#12A08C"
+      info-color: "#0A7AAD"
