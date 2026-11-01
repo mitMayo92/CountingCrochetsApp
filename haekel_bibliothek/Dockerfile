@@ -5,7 +5,9 @@ ARG PDFJS_VERSION=4.10.38
 RUN apk add --no-cache python3 py3-aiohttp poppler-utils curl \
  && mkdir -p /opt/pdfjs \
  && curl -sSfL "https://registry.npmjs.org/pdfjs-dist/-/pdfjs-dist-${PDFJS_VERSION}.tgz" \
-    | tar xz -C /opt/pdfjs --strip-components=1 package/build package/cmaps package/standard_fonts \
+    | tar xz -C /tmp \
+ && mv /tmp/package/build /tmp/package/cmaps /tmp/package/standard_fonts /opt/pdfjs/ \
+ && rm -rf /tmp/package \
  && apk del curl
 
 COPY app /app
