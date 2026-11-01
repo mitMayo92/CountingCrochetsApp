@@ -9,3 +9,9 @@ Zähler für Häkel-Sätze: Rundenanzahl einstellen, Start drücken, danach zäh
 - Bluetooth-Auslöser/Tastatur: Leertaste/Enter/Pfeil → zählt, Rücktaste/Pfeil links → zurück
 
 Reine HTML-Datei ohne Build. Über GitHub Pages hosten, auf dem Handy öffnen und „Zum Home-Bildschirm hinzufügen".
+
+## Häkel-Bibliothek (Home-Assistant-Add-on)
+
+Im Ordner [`haekel_bibliothek/`](haekel_bibliothek/) liegt ein Add-on, das Häkelanleitungen (PDF) als Katalog mit Vorschaubildern anzeigt.
+
+Installation: In Home Assistant *Einstellungen → Add-ons → Add-on-Store → ⋮ → Repositories* diese Repo-URL eintragen und danach **Häkel-Bibliothek** installieren und starten. Unter *Info* „In Seitenleiste anzeigen“ aktivieren.

@@ -1,0 +1,22 @@
+name: Häkel-Bibliothek
+version: "1.0.0"
+slug: haekel_bibliothek
+description: Katalog für Häkelanleitungen (PDF) mit automatischen Vorschaubildern
+url: https://github.com/mitmayo92/countingcrochetsapp
+arch:
+  - amd64
+  - aarch64
+startup: application
+boot: auto
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:book-open-page-variant
+panel_title: Häkeln
+panel_admin: false
+map:
+  - type: share
+    read_only: false
+options:
+  ordner: haekeln
+schema:
+  ordner: str
