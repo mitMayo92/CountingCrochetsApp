@@ -331,6 +331,19 @@ def cleanup_parts():
             part.unlink(missing_ok=True)
 
 
+_theme_seen: set[str] = set()
+
+
+@routes.post("/api/theme-info")
+async def api_theme_info(request):
+    """Protokolliert einmalig, welchen Hintergrund das HA-Theme liefert (zur Fehlersuche)."""
+    text = (await request.text())[:2000]
+    if text not in _theme_seen and len(_theme_seen) < 20:
+        _theme_seen.add(text)
+        print(f"Theme-Hintergrund: {text}")
+    return web.json_response({"ok": True})
+
+
 @routes.delete("/api/items/{id}")
 async def api_delete(request):
     pdf = decode_id(request.match_info["id"])
