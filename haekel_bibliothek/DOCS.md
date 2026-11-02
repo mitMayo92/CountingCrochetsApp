@@ -4,7 +4,7 @@ Katalog für Häkelanleitungen als PDF. Erscheint in der Home-Assistant-Seitenle
 
 ## Anleitungen hinzufügen
 
-- **In der Bibliothek:** auf **+** tippen, die PDF auswählen und optional ein Titelbild und eine Kategorie.
+- **In der Bibliothek:** auf **+** tippen, die PDF auswählen und optional ein Titelbild und eine Kategorie. Große Dateien werden automatisch in Stücken hochgeladen (Home Assistant erlaubt nur 16 MB pro Anfrage).
 - **Über die Dateien-App (iPhone/iPad):** *Durchsuchen → … → Mit Server verbinden →* `smb://homeassistant.local`.
   Dort unter `share/haekeln` speichern. Neue Dateien erscheinen beim nächsten Öffnen des Katalogs.
 

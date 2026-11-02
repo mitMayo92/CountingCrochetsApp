@@ -231,54 +231,71 @@ async def api_meta(request):
     return web.json_response({"ok": True})
 
 
+# Home Assistant (Ingress) lässt pro Anfrage höchstens 16 MB durch.
+# Dateien werden daher im Browser in Stücke geteilt (api/chunk) und
+# anschließend mit api/upload bzw. api/cover übernommen.
+UPLOAD_ID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+
+
+def part_path(upload_id: str) -> Path:
+    if not UPLOAD_ID.match(upload_id or ""):
+        raise web.HTTPBadRequest(text="Ungültige Upload-ID")
+    return DATA_DIR / f"upload-{upload_id}.part"
+
+
+@routes.post("/api/chunk")
+async def api_chunk(request):
+    path = part_path(request.query.get("id", ""))
+    try:
+        offset = int(request.query.get("offset", "0"))
+    except ValueError:
+        raise web.HTTPBadRequest(text="Ungültiger Offset")
+    size = path.stat().st_size if path.exists() else 0
+    if offset != size:
+        # Stück fehlt oder wurde doppelt gesendet: Client setzt bei 'size' fort
+        return web.json_response({"ok": False, "size": size}, status=409)
+    with path.open("ab") as fh:
+        async for chunk in request.content.iter_chunked(1 << 16):
+            fh.write(chunk)
+    return web.json_response({"ok": True, "size": path.stat().st_size})
+
+
+def take_part(info) -> tuple[Path, str]:
+    if not isinstance(info, dict):
+        raise web.HTTPBadRequest(text="Datei fehlt")
+    path = part_path(str(info.get("id", "")))
+    if not path.exists():
+        raise web.HTTPBadRequest(text="Upload unvollständig, bitte erneut versuchen")
+    if "size" in info and path.stat().st_size != int(info["size"]):
+        path.unlink(missing_ok=True)
+        raise web.HTTPBadRequest(text="Upload unvollständig, bitte erneut versuchen")
+    return path, safe_name(str(info.get("name", "")))
+
+
 @routes.post("/api/upload")
 async def api_upload(request):
-    length = request.content_length
-    print(f"Upload gestartet: {length / 1048576:.1f} MB" if length else "Upload gestartet (Größe unbekannt)")
-    try:
-        return await _upload(request)
-    except web.HTTPException as e:
-        print(f"Upload abgelehnt: {e.status} {e.text}")
-        raise
-    except Exception as e:  # Abbruch der Verbindung o. Ä.
-        print(f"Upload fehlgeschlagen: {type(e).__name__}: {e}")
-        raise
-
-
-async def _upload(request):
-    reader = await request.multipart()
-    category, pdf_path, image_part = "", None, None
-    image_tmp = None
-    while (part := await reader.next()) is not None:
-        if part.name == "category":
-            category = safe_category(await part.text())
-        elif part.name in ("pdf", "image") and part.filename:
-            tmp = DATA_DIR / f"upload-{time.time_ns()}"
-            with tmp.open("wb") as fh:
-                while chunk := await part.read_chunk(1 << 16):
-                    fh.write(chunk)
-            if part.name == "pdf":
-                pdf_path = (tmp, safe_name(part.filename))
-            else:
-                image_tmp, image_part = tmp, safe_name(part.filename)
-    if not pdf_path:
-        raise web.HTTPBadRequest(text="Keine PDF erhalten")
-    tmp, name = pdf_path
+    body = await request.json()
+    pdf_tmp, name = take_part(body.get("pdf"))
+    image = body.get("image")
+    image_tmp, image_name = take_part(image) if image else (None, "")
+    size_mb = pdf_tmp.stat().st_size / 1048576
     if not name.lower().endswith(".pdf"):
         name += ".pdf"
-    with tmp.open("rb") as fh:
+    with pdf_tmp.open("rb") as fh:
         head = fh.read(1024)
     if b"%PDF-" not in head:
-        tmp.unlink(missing_ok=True)
+        pdf_tmp.unlink(missing_ok=True)
         if image_tmp:
             image_tmp.unlink(missing_ok=True)
+        print(f"Upload abgelehnt (keine PDF): {name}")
         raise web.HTTPBadRequest(text="Die Datei ist keine PDF")
+    category = safe_category(str(body.get("category", "")))
     folder = ROOT / category if category else ROOT
     folder.mkdir(parents=True, exist_ok=True)
     target = unique_path(folder, name)
-    shutil.move(tmp, target)
+    shutil.move(pdf_tmp, target)
     if image_tmp:
-        ext = Path(image_part).suffix.lower()
+        ext = Path(image_name).suffix.lower()
         if ext in IMAGE_EXT:
             shutil.move(image_tmp, target.with_suffix(ext))
         else:
@@ -288,29 +305,30 @@ async def _upload(request):
         meta = load_meta()
         meta.setdefault(rel, {})["added"] = int(time.time())
         save_meta(meta)
-    print(f"Upload gespeichert: {rel} ({target.stat().st_size / 1048576:.1f} MB)")
+    print(f"Upload gespeichert: {rel} ({size_mb:.1f} MB)")
     return web.json_response({"ok": True, "id": encode_id(rel)})
 
 
 @routes.post("/api/cover/{id}")
 async def api_cover(request):
     pdf = decode_id(request.match_info["id"])
-    reader = await request.multipart()
-    part = await reader.next()
-    if not part or not part.filename:
-        raise web.HTTPBadRequest(text="Kein Bild erhalten")
-    ext = Path(part.filename).suffix.lower()
+    tmp, name = take_part((await request.json()).get("image"))
+    ext = Path(name).suffix.lower()
     if ext not in IMAGE_EXT:
+        tmp.unlink(missing_ok=True)
         raise web.HTTPBadRequest(text="Bitte JPG, PNG, WebP oder HEIC verwenden")
     old = cover_image(pdf)
-    tmp = DATA_DIR / f"cover-{time.time_ns()}"
-    with tmp.open("wb") as fh:
-        while chunk := await part.read_chunk(1 << 16):
-            fh.write(chunk)
     if old:
         old.unlink()
     shutil.move(tmp, pdf.with_suffix(ext))
     return web.json_response({"ok": True})
+
+
+def cleanup_parts():
+    cutoff = time.time() - 24 * 3600
+    for part in DATA_DIR.glob("upload-*"):
+        if part.stat().st_mtime < cutoff:
+            part.unlink(missing_ok=True)
 
 
 @routes.delete("/api/items/{id}")
@@ -328,6 +346,7 @@ async def api_delete(request):
 def main():
     ROOT.mkdir(parents=True, exist_ok=True)
     THUMBS.mkdir(parents=True, exist_ok=True)
+    cleanup_parts()
     app = web.Application(client_max_size=200 * 1024 * 1024)
     app.add_routes(routes)
     app.router.add_static("/static/", STATIC_DIR)

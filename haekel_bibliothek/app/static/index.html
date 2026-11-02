@@ -554,10 +554,9 @@ $('#dCoverFile').addEventListener('change', async (e) => {
   const f = e.target.files[0];
   e.target.value = '';
   if (!f) return;
-  const fd = new FormData();
-  fd.append('image', f);
   try {
-    await api('api/cover/' + current.id, { method: 'POST', body: fd });
+    const image = await sendFile(f);
+    await api('api/cover/' + current.id, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image }) });
     await load();
     current = items.find((i) => i.id === current.id) || current;
     $('#dCover').src = `thumb/${current.id}?v=${current.v}&t=${Date.now()}`;
@@ -616,31 +615,72 @@ $('#uCat').addEventListener('change', (e) => {
   $('#uCatNew').hidden = !isNew;
   if (isNew) $('#uCatNew').focus();
 });
-$('#uSend').addEventListener('click', () => {
-  if (!uploadFile) return;
-  const fd = new FormData();
-  const catSel = $('#uCat').value;
-  fd.append('category', catSel === '__new' ? $('#uCatNew').value.trim() : catSel);
-  fd.append('pdf', uploadFile);
-  if ($('#uImg').files[0]) fd.append('image', $('#uImg').files[0]);
-  const prog = $('#uProg');
-  prog.style.display = 'block';
-  $('#uSend').disabled = true;
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', 'api/upload');
-  xhr.upload.onprogress = (e) => { if (e.lengthComputable) prog.firstElementChild.style.width = (e.loaded / e.total * 100) + '%'; };
-  xhr.onload = async () => {
-    if (xhr.status >= 200 && xhr.status < 300) {
-      $('#upload').classList.remove('open');
-      toast('Anleitung hinzugefügt');
-      await load();
-    } else {
-      toast(`Hochladen fehlgeschlagen (Fehler ${xhr.status}, ${mb(uploadFile.size)} MB)` + (xhr.responseText && xhr.responseText.length < 200 ? ': ' + xhr.responseText : ''));
-      $('#uSend').disabled = false;
+// Home Assistant (Ingress) erlaubt höchstens 16 MB pro Anfrage → Datei in Stücken senden
+const CHUNK = 8 * 1024 * 1024;
+
+function postChunk(url, blob, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = (e) => onProgress(e.loaded);
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch {}
+      if (xhr.status === 200 || xhr.status === 409) resolve(data);
+      else reject(new Error(`Fehler ${xhr.status}` + (xhr.responseText && xhr.responseText.length < 200 ? ': ' + xhr.responseText : '')));
+    };
+    xhr.onerror = () => reject(new Error('Verbindung abgebrochen'));
+    xhr.send(blob);
+  });
+}
+
+async function sendFile(file, onProgress = () => {}) {
+  const id = (crypto.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, '');
+  let offset = 0;
+  let retries = 0;
+  do {
+    const end = Math.min(offset + CHUNK, file.size);
+    try {
+      const res = await postChunk(`api/chunk?id=${id}&offset=${offset}`, file.slice(offset, end), (loaded) => onProgress(offset + loaded, file.size));
+      offset = res.size ?? end;
+      retries = 0;
+    } catch (e) {
+      if (++retries > 3) throw e;
+      await new Promise((r) => setTimeout(r, 1000 * retries));
     }
-  };
-  xhr.onerror = () => { toast(`Verbindung abgebrochen (${mb(uploadFile.size)} MB)`); $('#uSend').disabled = false; };
-  xhr.send(fd);
+  } while (offset < file.size);
+  onProgress(file.size, file.size);
+  return { id, name: file.name, size: file.size };
+}
+
+$('#uSend').addEventListener('click', async () => {
+  if (!uploadFile) return;
+  const file = uploadFile;
+  const image = $('#uImg').files[0];
+  const catSel = $('#uCat').value;
+  const category = catSel === '__new' ? $('#uCatNew').value.trim() : catSel;
+  const prog = $('#uProg');
+  const bar = prog.firstElementChild;
+  const total = file.size + (image ? image.size : 0);
+  prog.style.display = 'block';
+  bar.style.width = '0';
+  $('#uSend').disabled = true;
+  try {
+    const pdf = await sendFile(file, (done) => { bar.style.width = (done / total * 100) + '%'; });
+    const img = image ? await sendFile(image, (done) => { bar.style.width = ((file.size + done) / total * 100) + '%'; }) : null;
+    await api('api/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pdf, image: img, category }),
+    });
+    $('#upload').classList.remove('open');
+    toast('Anleitung hinzugefügt');
+    await load();
+  } catch (e) {
+    toast(`Hochladen fehlgeschlagen (${mb(file.size)} MB): ${e.message}`);
+    $('#uSend').disabled = false;
+  }
 });
 // PDF per Drag & Drop (Computer)
 addEventListener('dragover', (e) => e.preventDefault());
