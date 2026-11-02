@@ -161,6 +161,31 @@
     width: 100%; max-height: 46vh; object-fit: contain; border-radius: 14px;
     background: var(--accent-soft); display: block; view-transition-name: none;
   }
+  .cover-wrap { position: relative; touch-action: pan-y; }
+  .dnav {
+    position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
+    width: 44px; height: 44px; border-radius: 50%; border: 0;
+    background: color-mix(in srgb, var(--surface) 88%, transparent); color: var(--fg);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, .18); font-size: 1.6rem; line-height: 1;
+    display: grid; place-items: center; transition: opacity .2s, transform .15s;
+  }
+  .dnav:active { transform: translateY(-50%) scale(.9); }
+  .dnav:disabled { opacity: 0; pointer-events: none; }
+  #dPrev { left: 10px; }
+  #dNext { right: 10px; }
+  .dpos {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 2;
+    background: color-mix(in srgb, var(--surface) 88%, transparent); color: var(--fg);
+    padding: 3px 10px; border-radius: 999px; font-size: .78rem; font-variant-numeric: tabular-nums;
+  }
+  .dbody.out-left { animation: outL .16s ease-in forwards; }
+  .dbody.out-right { animation: outR .16s ease-in forwards; }
+  .dbody.in-left { animation: inL .28s cubic-bezier(.2, .8, .2, 1); }
+  .dbody.in-right { animation: inR .28s cubic-bezier(.2, .8, .2, 1); }
+  @keyframes outL { to { opacity: 0; transform: translateX(-40px); } }
+  @keyframes outR { to { opacity: 0; transform: translateX(40px); } }
+  @keyframes inL { from { opacity: 0; transform: translateX(40px); } }
+  @keyframes inR { from { opacity: 0; transform: translateX(-40px); } }
   .title-input {
     width: 100%; border: 0; background: none; font-size: 1.35rem; font-weight: 700;
     padding: 14px 0 2px; outline: none; border-bottom: 2px solid transparent;
@@ -264,7 +289,13 @@
 <!-- Detail -->
 <div class="overlay" id="detail">
   <div class="sheet" role="dialog" aria-modal="true">
-    <img class="detail-cover" id="dCover" alt="">
+    <div class="dbody" id="dBody">
+    <div class="cover-wrap" id="dCoverWrap">
+      <img class="detail-cover" id="dCover" alt="">
+      <button class="dnav" id="dPrev" aria-label="Vorherige Anleitung">‹</button>
+      <button class="dnav" id="dNext" aria-label="Nächste Anleitung">›</button>
+      <span class="dpos" id="dPos"></span>
+    </div>
     <input class="title-input" id="dTitle" aria-label="Titel">
     <div class="meta" id="dMeta"></div>
     <button class="primary" id="dOpen">Anleitung öffnen</button>
@@ -282,6 +313,7 @@
       <button class="ghost danger" id="dDelete">Löschen</button>
     </div>
     <input type="file" id="dCoverFile" accept="image/*" hidden>
+    </div>
   </div>
 </div>
 
@@ -498,19 +530,82 @@ $('#grid').addEventListener('click', (e) => {
   });
 });
 
+let detailList = [];
+
 function openDetail(it) {
-  current = it;
+  detailList = visible();
+  fillDetail(it);
   const cover = $('#dCover');
-  cover.src = `thumb/${it.id}?v=${it.v}`;
   cover.style.viewTransitionName = 'cover';
+  $('#detail').classList.add('open');
+  setTimeout(() => (cover.style.viewTransitionName = ''), 450);
+}
+
+function fillDetail(it) {
+  current = it;
+  $('#dCover').src = `thumb/${it.id}?v=${it.v}`;
   $('#dTitle').value = it.title;
   const mb = (it.size / 1048576).toFixed(1).replace('.', ',');
   const date = new Date(it.added * 1000).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
   $('#dMeta').textContent = [it.category || 'Ohne Kategorie', date, mb + ' MB'].join(' · ');
   $('#dNotes').value = it.notes;
   syncDetailControls();
-  $('#detail').classList.add('open');
-  setTimeout(() => (cover.style.viewTransitionName = ''), 450);
+  const idx = detailList.findIndex((i) => i.id === it.id);
+  $('#dPrev').disabled = idx <= 0;
+  $('#dNext').disabled = idx < 0 || idx >= detailList.length - 1;
+  $('#dPos').textContent = idx >= 0 && detailList.length > 1 ? `${idx + 1} / ${detailList.length}` : '';
+  $('#dPos').hidden = !$('#dPos').textContent;
+  // Nachbarbilder vorladen, damit das Blättern sofort wirkt
+  [detailList[idx - 1], detailList[idx + 1]].forEach((n) => { if (n) new Image().src = `thumb/${n.id}?v=${n.v}`; });
+}
+
+function flushNotes() {
+  if (!saveMeta.h || !current) return;
+  clearTimeout(saveMeta.h);
+  saveMeta.h = null;
+  if ($('#dNotes').value !== current.notes) saveMeta({ notes: $('#dNotes').value });
+}
+
+let navBusy = false;
+function stepDetail(dir) {
+  const idx = detailList.findIndex((i) => i.id === current?.id);
+  const next = detailList[idx + dir];
+  if (!next || navBusy || !$('#detail').classList.contains('open')) return;
+  navBusy = true;
+  flushNotes();
+  const t = $('#dTitle').value.trim();
+  if (t && t !== current.title) saveMeta({ title: t });
+  const body = $('#dBody');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const swap = () => {
+    body.className = 'dbody';
+    fillDetail(next);
+    if (!reduce) { void body.offsetWidth; body.classList.add(dir > 0 ? 'in-left' : 'in-right'); }
+    navBusy = false;
+  };
+  if (reduce) return swap();
+  body.className = 'dbody';
+  void body.offsetWidth;
+  body.classList.add(dir > 0 ? 'out-left' : 'out-right');
+  let done = false;
+  const finish = () => { if (!done) { done = true; swap(); } };
+  body.addEventListener('animationend', finish, { once: true });
+  setTimeout(finish, 300);
+}
+
+$('#dPrev').addEventListener('click', () => stepDetail(-1));
+$('#dNext').addEventListener('click', () => stepDetail(1));
+{
+  let sx = 0, sy = 0, tracking = false;
+  const wrap = $('#dCoverWrap');
+  wrap.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; tracking = true; }, { passive: true });
+  wrap.addEventListener('touchend', (e) => {
+    if (!tracking) return;
+    tracking = false;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) stepDetail(dx < 0 ? 1 : -1);
+  }, { passive: true });
 }
 
 function syncDetailControls() {
@@ -521,6 +616,7 @@ function syncDetailControls() {
 }
 
 function closeDetail() {
+  flushNotes();
   $('#detail').classList.remove('open');
   render();
 }
@@ -824,6 +920,12 @@ document.addEventListener('visibilitychange', async () => {
   }
 });
 addEventListener('keydown', (e) => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName);
+  if (!typing && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && $('#detail').classList.contains('open') && !$('#viewer').classList.contains('open')) {
+    e.preventDefault();
+    stepDetail(e.key === 'ArrowRight' ? 1 : -1);
+    return;
+  }
   if (e.key !== 'Escape') return;
   if ($('#viewer').classList.contains('open')) history.back();
   else if ($('#upload').classList.contains('open')) $('#upload').classList.remove('open');
