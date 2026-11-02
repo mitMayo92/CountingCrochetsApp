@@ -117,13 +117,62 @@ def save_meta(meta: dict) -> None:
     tmp.replace(META_FILE)
 
 
+def guess_label(stem: str) -> str:
+    s = stem.lower()
+    if re.search(r"(^|[^a-z])(en|eng|english|englisch|uk|us)([^a-z]|$)|pattern", s):
+        return "Englisch"
+    if re.search(r"(^|[^a-z])(de|ger|deutsch|german)([^a-z]|$)|anleitung", s):
+        return "Deutsch"
+    return ""
+
+
+def fill_labels(files: list[dict]) -> list[dict]:
+    """Fehlende Bezeichnungen sinnvoll ergänzen (Deutsch/Englisch, sonst durchnummeriert)."""
+    used = {f["label"] for f in files if f["label"]}
+    for i, f in enumerate(files):
+        if not f["label"]:
+            f["label"] = next((l for l in ("Deutsch", "Englisch") if l not in used), f"PDF {i + 1}")
+            used.add(f["label"])
+    return files
+
+
+def rel_of(path: Path) -> str:
+    return path.relative_to(ROOT).as_posix()
+
+
+def file_entry(rel: str, label: str) -> dict | None:
+    path = ROOT / rel
+    if not path.is_file():
+        return None
+    return {"id": encode_id(rel), "label": label or guess_label(path.stem), "size": path.stat().st_size}
+
+
+def variant_rels(meta: dict) -> set[str]:
+    """Alle PDFs, die als weitere Fassung an einem anderen (existierenden) Eintrag hängen."""
+    out = set()
+    for main, m in meta.items():
+        if (ROOT / main).is_file():
+            out.update(f["rel"] for f in m.get("files", []))
+    return out
+
+
+def main_rel_for(meta: dict, rel: str) -> str:
+    """Liefert den Haupteintrag; Fassungen werden nie selbst zum Eintrag."""
+    if rel in variant_rels(meta):
+        raise web.HTTPBadRequest(text="Diese PDF ist bereits eine Fassung eines anderen Eintrags")
+    return rel
+
+
 def list_items() -> list[dict]:
     meta = load_meta()
+    variants = variant_rels(meta)
     items = []
     for pdf in ROOT.rglob("*"):
         if pdf.suffix.lower() != ".pdf" or not pdf.is_file() or hidden(pdf):
             continue
         rel = pdf.relative_to(ROOT).as_posix()
+        if rel in variants:
+            continue
         stat = pdf.stat()
         cover = cover_image(pdf)
         version = int(max(stat.st_mtime, cover.stat().st_mtime if cover else 0))
@@ -140,6 +189,8 @@ def list_items() -> list[dict]:
             "status": m.get("status", "") if m.get("status", "") in STATUSES else "",
             "notes": m.get("notes", ""),
             "hasCover": cover is not None,
+            "files": fill_labels([f for f in [file_entry(rel, m.get("label", ""))]
+                      + [file_entry(v["rel"], v.get("label", "")) for v in m.get("files", [])] if f]),
         })
     items.sort(key=lambda i: i["added"], reverse=True)
     return items
@@ -344,15 +395,123 @@ async def api_theme_info(request):
     return web.json_response({"ok": True})
 
 
+# ---------- Mehrere PDFs pro Eintrag (z. B. Deutsch/Englisch) ----------
+
+def clean_label(label) -> str:
+    return re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", str(label or "")).strip()[:40]
+
+
+@routes.post("/api/files/{id}/add")
+async def api_files_add(request):
+    """Neue PDF als weitere Fassung hochladen (Datei vorher per api/chunk gesendet)."""
+    main = decode_id(request.match_info["id"])
+    body = await request.json()
+    tmp, name = take_part(body.get("pdf"))
+    with tmp.open("rb") as fh:
+        if b"%PDF-" not in fh.read(1024):
+            tmp.unlink(missing_ok=True)
+            raise web.HTTPBadRequest(text="Die Datei ist keine PDF")
+    label = clean_label(body.get("label")) or guess_label(Path(name).stem) or "Weitere Fassung"
+    target = unique_path(main.parent, f"{main.stem} ({label}).pdf")
+    shutil.move(tmp, target)
+    async with meta_lock:
+        meta = load_meta()
+        rel = main_rel_for(meta, rel_of(main))
+        m = meta.setdefault(rel, {})
+        m.setdefault("files", []).append({"rel": rel_of(target), "label": label})
+        save_meta(meta)
+    print(f"Fassung hinzugefügt: {rel_of(target)} → {rel}")
+    return web.json_response({"ok": True})
+
+
+@routes.post("/api/files/{id}/merge")
+async def api_files_merge(request):
+    """Einen bestehenden Eintrag (samt seinen Fassungen) als Fassung(en) übernehmen."""
+    main = decode_id(request.match_info["id"])
+    other = decode_id(str((await request.json()).get("from", "")))
+    if main == other:
+        raise web.HTTPBadRequest(text="Ein Eintrag kann nicht mit sich selbst zusammengeführt werden")
+    async with meta_lock:
+        meta = load_meta()
+        rel = main_rel_for(meta, rel_of(main))
+        orel = main_rel_for(meta, rel_of(other))
+        m = meta.setdefault(rel, {})
+        om = meta.pop(orel, {})
+        files = m.setdefault("files", [])
+        files.append({"rel": orel, "label": om.get("label") or guess_label(other.stem)})
+        files.extend(om.get("files", []))
+        if om.get("notes"):
+            m["notes"] = (m.get("notes", "") + "\n\n" + om["notes"]).strip()
+        if om.get("favorite"):
+            m["favorite"] = True
+        if not m.get("status") and om.get("status") in STATUSES:
+            m["status"] = om["status"]
+        save_meta(meta)
+    print(f"Zusammengeführt: {orel} → {rel}")
+    return web.json_response({"ok": True})
+
+
+@routes.post("/api/files/{id}/label")
+async def api_files_label(request):
+    main = decode_id(request.match_info["id"])
+    body = await request.json()
+    target = rel_of(decode_id(str(body.get("file", ""))))
+    label = clean_label(body.get("label"))
+    if not label:
+        raise web.HTTPBadRequest(text="Bitte eine Bezeichnung eingeben")
+    async with meta_lock:
+        meta = load_meta()
+        rel = main_rel_for(meta, rel_of(main))
+        m = meta.setdefault(rel, {})
+        if target == rel:
+            m["label"] = label
+        else:
+            for f in m.get("files", []):
+                if f["rel"] == target:
+                    f["label"] = label
+                    break
+            else:
+                raise web.HTTPNotFound(text="Fassung nicht gefunden")
+        save_meta(meta)
+    return web.json_response({"ok": True})
+
+
+@routes.post("/api/files/{id}/split")
+async def api_files_split(request):
+    """Fassung wieder abtrennen: sie wird ein eigener Eintrag."""
+    main = decode_id(request.match_info["id"])
+    target = rel_of(decode_id(str((await request.json()).get("file", ""))))
+    async with meta_lock:
+        meta = load_meta()
+        m = meta.get(rel_of(main), {})
+        files = m.get("files", [])
+        keep = [f for f in files if f["rel"] != target]
+        if len(keep) == len(files):
+            raise web.HTTPNotFound(text="Fassung nicht gefunden")
+        m["files"] = keep
+        removed = next(f for f in files if f["rel"] == target)
+        meta[target] = {"added": int(time.time()), "label": removed.get("label", "")}
+        save_meta(meta)
+    return web.json_response({"ok": True})
+
+
 @routes.delete("/api/items/{id}")
 async def api_delete(request):
     pdf = decode_id(request.match_info["id"])
     trash = ROOT / TRASH
     trash.mkdir(exist_ok=True)
-    cover = cover_image(pdf)
-    shutil.move(pdf, unique_path(trash, pdf.name))
-    if cover:
-        shutil.move(cover, unique_path(trash, cover.name))
+    async with meta_lock:
+        meta = load_meta()
+        m = meta.pop(rel_of(pdf), {})
+        save_meta(meta)
+    paths = [pdf] + [ROOT / f["rel"] for f in m.get("files", [])]
+    for path in paths:
+        if not path.is_file():
+            continue
+        cover = cover_image(path)
+        shutil.move(path, unique_path(trash, path.name))
+        if cover:
+            shutil.move(cover, unique_path(trash, cover.name))
     return web.json_response({"ok": True})
 
 

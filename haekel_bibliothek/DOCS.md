@@ -15,6 +15,16 @@ Katalog für Häkelanleitungen als PDF. Erscheint in der Home-Assistant-Seitenle
 - **Titel:** Kommt aus dem Dateinamen (`Hase_Hoppel.pdf` → „Hase Hoppel“) und lässt sich in der Bibliothek ändern.
 - **Löschen** verschiebt Dateien nach `share/haekeln/.papierkorb`. Dort kann man sie wiederherstellen.
 
+## Mehrere PDFs pro Anleitung (z. B. Deutsch und Englisch)
+
+In der Detailansicht unter **PDFs**:
+- **+ PDF hochladen** – weitere Fassung hochladen; sie wird neben der Haupt-PDF als `Name (Englisch).pdf` gespeichert.
+- **+ Aus Bibliothek** – eine bereits vorhandene Anleitung als weitere Fassung übernehmen (sie verschwindet dann als eigener Eintrag; Notizen werden übernommen).
+- **Umbenennen** ändert die Bezeichnung (Deutsch, Englisch, …), **Abtrennen** macht die Fassung wieder zu einem eigenen Eintrag.
+- **Löschen** verschiebt alle PDFs des Eintrags in den Papierkorb.
+
+Die Verknüpfung steht in den Add-on-Daten, die Dateien selbst werden nicht verschoben.
+
 Status, Favoriten, Notizen und geänderte Titel liegen in den Add-on-Daten (`/data/meta.json`). Wird eine Datei per Samba umbenannt oder verschoben, gehen diese Angaben für die Datei verloren.
 
 ## Backup

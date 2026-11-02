@@ -204,6 +204,22 @@
   }
   .title-input:focus { border-bottom-color: var(--accent); }
   .meta { color: var(--muted); font-size: .85rem; margin-bottom: 14px; }
+  .open-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .open-row .primary { flex: 1 1 120px; width: auto; }
+  .files { margin-top: 6px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .frow { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-top: 1px solid var(--line); }
+  .frow:first-child { border-top: 0; }
+  .frow .fl { flex: 1; min-width: 0; font-weight: 600; }
+  .frow .fl small { display: block; font-weight: 400; color: var(--muted); font-size: .78rem; }
+  .frow button { border: 1px solid var(--line); background: none; border-radius: 9px; padding: 5px 9px; font-size: .82rem; }
+  .file-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .file-actions .ghost { flex: 1; }
+  .badge.langs { left: 8px; top: auto; bottom: 8px; z-index: 2; letter-spacing: .03em; }
+  .pick-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; max-height: 55vh; overflow-y: auto; }
+  .pick { display: flex; align-items: center; gap: 12px; text-align: left; border: 1px solid var(--line); background: none; border-radius: 12px; padding: 6px; }
+  .pick img { width: 44px; height: 58px; object-fit: cover; border-radius: 8px; background: var(--accent-soft); flex: none; }
+  .pick span { flex: 1; min-width: 0; }
+  .pick small { display: block; color: var(--muted); }
   .save-bar {
     position: sticky; bottom: calc(-24px - env(safe-area-inset-bottom)); z-index: 3;
     margin: 16px -20px calc(-24px - env(safe-area-inset-bottom));
@@ -323,13 +339,20 @@
     </div>
     <input class="title-input" id="dTitle" aria-label="Titel">
     <div class="meta" id="dMeta"></div>
-    <button class="primary" id="dOpen">Anleitung öffnen</button>
+    <div class="open-row" id="dOpen"></div>
     <div class="seg" id="dStatus">
       <button data-s="">Kein Status</button>
       <button data-s="in_arbeit">In Arbeit</button>
       <button data-s="fertig">Fertig</button>
     </div>
     <button class="ghost favbtn" id="dFav">☆ Favorit</button>
+    <label class="lbl">PDFs <small style="text-transform:none;font-weight:400">(z. B. Deutsch und Englisch)</small></label>
+    <div class="files" id="dFiles"></div>
+    <div class="file-actions">
+      <button class="ghost" id="dAddFile">+ PDF hochladen</button>
+      <button class="ghost" id="dMerge">+ Aus Bibliothek</button>
+    </div>
+    <input type="file" id="dAddFileInput" hidden>
     <label class="lbl" for="dNotes">Notizen</label>
     <textarea id="dNotes" placeholder="z. B. Garn, Nadelstärke, Änderungen …"></textarea>
     <div class="actions">
@@ -339,6 +362,20 @@
     <input type="file" id="dCoverFile" accept="image/*" hidden>
     <div class="save-bar"><button class="save-btn" id="dSave">Speichern</button></div>
     </div>
+  </div>
+</div>
+
+<!-- Eintrag zum Zusammenführen auswählen -->
+<div class="overlay" id="merge">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <h2>Fassung hinzufügen</h2>
+    <p class="meta" style="margin:0">Wähle die Anleitung, die als weitere Fassung (z. B. Englisch) zu diesem Eintrag gehört.</p>
+    <label class="search" style="margin-top:12px">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="mQ" type="search" placeholder="Suchen …" autocomplete="off">
+    </label>
+    <div class="pick-list" id="mList"></div>
+    <div class="actions"><button class="ghost" id="mCancel">Abbrechen</button></div>
   </div>
 </div>
 
@@ -500,12 +537,15 @@ function visible() {
     if (filter === 'fav' && !i.favorite) return false;
     if (filter === 'in_arbeit' && i.status !== 'in_arbeit') return false;
     if (filter.startsWith('cat:') && i.category !== filter.slice(4)) return false;
-    if (q && !(i.title + ' ' + i.category + ' ' + i.notes).toLowerCase().includes(q)) return false;
+    if (q && !(i.title + ' ' + i.category + ' ' + i.notes + ' ' + i.files.map((f) => f.label).join(' ')).toLowerCase().includes(q)) return false;
     return true;
   });
   if (sort === 'az') list = [...list].sort((a, b) => a.title.localeCompare(b.title, 'de'));
   return list;
 }
+
+const SHORT = { deutsch: 'DE', englisch: 'EN', english: 'EN', französisch: 'FR', niederländisch: 'NL', spanisch: 'ES', italienisch: 'IT' };
+const short = (label) => SHORT[label.toLowerCase()] || label.slice(0, 3).toUpperCase();
 
 function renderChips() {
   const chips = [['all', 'Alle'], ['fav', '★ Favoriten'], ['in_arbeit', 'In Arbeit'], ...categories.map((c) => ['cat:' + c, c])];
@@ -525,7 +565,7 @@ function render() {
     el.dataset.id = it.id;
     el.style.setProperty('--i', Math.min(i, 16));
     el.innerHTML = `
-      <div class="thumb">${placeholder}<img class="blur" loading="lazy" decoding="async" alt="" aria-hidden="true" src="thumb/${it.id}?v=${it.v}"><img class="main" loading="lazy" decoding="async" alt="" src="thumb/${it.id}?v=${it.v}"></div>
+      <div class="thumb">${placeholder}<img class="blur" loading="lazy" decoding="async" alt="" aria-hidden="true" src="thumb/${it.id}?v=${it.v}"><img class="main" loading="lazy" decoding="async" alt="" src="thumb/${it.id}?v=${it.v}">${it.files.length > 1 ? `<span class="badge langs">${it.files.map((f) => esc(short(f.label))).join(' · ')}</span>` : ''}</div>
       <div class="cap"><span class="t">${esc(it.title)}</span>${it.category ? `<span class="c">${esc(it.category)}</span>` : ''}</div>
       ${it.favorite ? '<span class="badge fav">★</span>' : ''}
       ${STATUS[it.status] ? `<span class="badge st st-${it.status}">${STATUS[it.status]}</span>` : ''}`;
@@ -594,8 +634,9 @@ function fillDetail(it) {
   $('#dTitle').value = it.title;
   const mb = (it.size / 1048576).toFixed(1).replace('.', ',');
   const date = new Date(it.added * 1000).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
-  $('#dMeta').textContent = [it.category || 'Ohne Kategorie', date, mb + ' MB'].join(' · ');
+  $('#dMeta').textContent = [it.category || 'Ohne Kategorie', date, it.files.length > 1 ? `${it.files.length} PDFs` : mb + ' MB'].join(' · ');
   $('#dNotes').value = it.notes;
+  renderFiles();
   syncDetailControls();
   const idx = detailList.findIndex((i) => i.id === it.id);
   $('#dPrev').disabled = idx <= 0;
@@ -707,7 +748,112 @@ $('#dStatus').addEventListener('click', (e) => {
   syncDetailControls();
 });
 $('#dFav').addEventListener('click', () => { saveMeta({ favorite: !current.favorite }); syncDetailControls(); });
-$('#dOpen').addEventListener('click', () => openViewer(current));
+function renderFiles() {
+  const files = current.files;
+  $('#dOpen').innerHTML = files.length > 1
+    ? files.map((f, i) => `<button class="primary" data-i="${i}">${esc(f.label)} öffnen</button>`).join('')
+    : '<button class="primary" data-i="0">Anleitung öffnen</button>';
+  $('#dFiles').innerHTML = files.map((f, i) => `
+    <div class="frow">
+      <span class="fl">${esc(f.label)}<small>${i === 0 ? 'Haupt-PDF · ' : ''}${mb(f.size)} MB</small></span>
+      <button data-act="label" data-i="${i}">Umbenennen</button>
+      ${i > 0 ? `<button data-act="split" data-i="${i}">Abtrennen</button>` : ''}
+    </div>`).join('');
+}
+
+async function refreshCurrent() {
+  await load();
+  const fresh = items.find((i) => i.id === current.id);
+  if (fresh) {
+    detailList = detailList.map((i) => (i.id === fresh.id ? fresh : i)).filter((i) => items.some((x) => x.id === i.id));
+    fillDetail(fresh);
+  }
+}
+
+$('#dOpen').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (b) openViewer(current, current.files[+b.dataset.i]);
+});
+
+$('#dFiles').addEventListener('click', async (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const f = current.files[+b.dataset.i];
+  const post = (path, body) => api(`api/files/${current.id}/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  try {
+    if (b.dataset.act === 'label') {
+      const label = prompt('Bezeichnung der PDF (z. B. Deutsch, Englisch):', f.label);
+      if (!label || !label.trim() || label.trim() === f.label) return;
+      await post('label', { file: f.id, label: label.trim() });
+    } else if (b.dataset.act === 'split') {
+      if (!confirm(`„${f.label}“ abtrennen?\n\nDie PDF wird wieder ein eigener Eintrag in der Übersicht.`)) return;
+      await post('split', { file: f.id });
+      toast('Abgetrennt');
+    }
+    await refreshCurrent();
+  } catch (err) {
+    toast(err.message);
+  }
+});
+
+$('#dAddFile').addEventListener('click', () => $('#dAddFileInput').click());
+$('#dAddFileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') return toast('Das ist keine PDF: ' + file.name);
+  const guess = /english|englisch|pattern|(^|[^a-z])en([^a-z]|$)/i.test(file.name) ? 'Englisch' : (/deutsch|german|anleitung|(^|[^a-z])de([^a-z]|$)/i.test(file.name) ? 'Deutsch' : '');
+  const label = prompt('Bezeichnung dieser PDF (z. B. Deutsch, Englisch):', guess);
+  if (label === null) return;
+  const btn = $('#dAddFile');
+  btn.disabled = true;
+  try {
+    const pdf = await sendFile(file, (done, total) => { btn.textContent = `Lädt … ${Math.round(done / total * 100)} %`; });
+    await api(`api/files/${current.id}/add`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pdf, label: label.trim() }) });
+    await refreshCurrent();
+    toast('PDF hinzugefügt');
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '+ PDF hochladen';
+  }
+});
+
+// Bestehenden Eintrag als Fassung übernehmen
+function renderMergeList() {
+  const q = $('#mQ').value.trim().toLowerCase();
+  const list = items
+    .filter((i) => i.id !== current.id && (!q || (i.title + ' ' + i.category).toLowerCase().includes(q)))
+    .sort((a, b) => a.title.localeCompare(b.title, 'de'));
+  $('#mList').innerHTML = list.map((i) => `
+    <button class="pick" data-id="${i.id}">
+      <img loading="lazy" alt="" src="thumb/${i.id}?v=${i.v}">
+      <span>${esc(i.title)}<small>${esc(i.category || 'Ohne Kategorie')}${i.files.length > 1 ? ' · ' + i.files.length + ' PDFs' : ''}</small></span>
+    </button>`).join('') || '<p class="meta">Nichts gefunden.</p>';
+}
+$('#dMerge').addEventListener('click', () => {
+  $('#mQ').value = '';
+  renderMergeList();
+  $('#merge').classList.add('open');
+});
+$('#mQ').addEventListener('input', renderMergeList);
+$('#mCancel').addEventListener('click', () => $('#merge').classList.remove('open'));
+$('#merge').addEventListener('click', (e) => { if (e.target.id === 'merge') $('#merge').classList.remove('open'); });
+$('#mList').addEventListener('click', async (e) => {
+  const b = e.target.closest('.pick');
+  if (!b) return;
+  const other = items.find((i) => i.id === b.dataset.id);
+  if (!confirm(`„${other.title}“ als weitere Fassung zu „${current.title}“ hinzufügen?\n\nTitel und Titelbild von „${current.title}“ bleiben. Notizen werden übernommen. Mit „Abtrennen“ lässt sich das rückgängig machen.`)) return;
+  try {
+    await api(`api/files/${current.id}/merge`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from: other.id }) });
+    $('#merge').classList.remove('open');
+    await refreshCurrent();
+    toast('Zusammengeführt');
+  } catch (err) {
+    toast(err.message);
+  }
+});
 $('#dCoverBtn').addEventListener('click', () => $('#dCoverFile').click());
 $('#dCoverFile').addEventListener('change', async (e) => {
   const f = e.target.files[0];
@@ -725,7 +871,8 @@ $('#dCoverFile').addEventListener('change', async (e) => {
   }
 });
 $('#dDelete').addEventListener('click', async () => {
-  if (!confirm(`„${current.title}“ löschen?\n\nDie Datei wird in den Ordner „.papierkorb“ verschoben.`)) return;
+  const n = current.files.length;
+  if (!confirm(`„${current.title}“ löschen?\n\n${n > 1 ? `Alle ${n} PDFs werden` : 'Die Datei wird'} in den Ordner „.papierkorb“ verschoben.`)) return;
   try {
     await api('api/items/' + current.id, { method: 'DELETE' });
     items = items.filter((i) => i.id !== current.id);
@@ -865,11 +1012,13 @@ async function loadPdfjs() {
   return pdfjs;
 }
 
-async function openViewer(it) {
+let viewerFile = null;
+async function openViewer(it, file = it.files[0]) {
+  viewerFile = file;
   const viewer = $('#viewer');
   const pages = $('#pages');
   pages.innerHTML = '<div class="spinner" style="position:relative;margin:40px auto"></div>';
-  $('#vTitle').textContent = it.title;
+  $('#vTitle').textContent = it.files.length > 1 ? `${it.title} · ${file.label}` : it.title;
   $('#vPage').textContent = '';
   viewer.classList.add('open');
   viewer.setAttribute('aria-hidden', 'false');
@@ -878,7 +1027,7 @@ async function openViewer(it) {
   try {
     const lib = await loadPdfjs();
     doc = await lib.getDocument({
-      url: 'file/' + it.id,
+      url: 'file/' + file.id,
       cMapUrl: 'pdfjs/cmaps/', cMapPacked: true,
       standardFontDataUrl: 'pdfjs/standard_fonts/',
     }).promise;
@@ -907,7 +1056,7 @@ async function openViewer(it) {
   }
   layout();
   pageEls.forEach((el) => observer.observe(el));
-  const pos = store.get('pos:' + it.id, 0);
+  const pos = store.get('pos:' + file.id, 0);
   requestAnimationFrame(() => { pages.scrollTop = pos * pages.scrollHeight; updatePageNo(); });
 }
 
@@ -969,7 +1118,7 @@ $('#pages').addEventListener('scroll', () => {
   updatePageNo.h = setTimeout(() => {
     updatePageNo();
     const p = $('#pages');
-    if (current) store.set('pos:' + current.id, p.scrollTop / Math.max(1, p.scrollHeight));
+    if (viewerFile) store.set('pos:' + viewerFile.id, p.scrollTop / Math.max(1, p.scrollHeight));
   }, 150);
 }, { passive: true });
 $('#vIn').addEventListener('click', () => setZoom(zoom + .25));
@@ -984,13 +1133,14 @@ document.addEventListener('visibilitychange', async () => {
 });
 addEventListener('keydown', (e) => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName);
-  if (!typing && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && $('#detail').classList.contains('open') && !$('#viewer').classList.contains('open')) {
+  if (!typing && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && $('#detail').classList.contains('open') && !$('#viewer').classList.contains('open') && !$('#merge').classList.contains('open')) {
     e.preventDefault();
     stepDetail(e.key === 'ArrowRight' ? 1 : -1);
     return;
   }
   if (e.key !== 'Escape') return;
   if ($('#viewer').classList.contains('open')) history.back();
+  else if ($('#merge').classList.contains('open')) $('#merge').classList.remove('open');
   else if ($('#upload').classList.contains('open')) $('#upload').classList.remove('open');
   else if ($('#detail').classList.contains('open')) closeDetail();
 });
