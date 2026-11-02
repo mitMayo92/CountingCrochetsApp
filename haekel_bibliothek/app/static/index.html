@@ -301,7 +301,6 @@
     <button class="primary" id="dOpen">Anleitung öffnen</button>
     <div class="seg" id="dStatus">
       <button data-s="">Kein Status</button>
-      <button data-s="geplant">Geplant</button>
       <button data-s="in_arbeit">In Arbeit</button>
       <button data-s="fertig">Fertig</button>
     </div>
@@ -359,7 +358,7 @@
 
 <script type="module">
 const $ = (s) => document.querySelector(s);
-const STATUS = { geplant: 'Geplant', in_arbeit: 'In Arbeit', fertig: 'Fertig' };
+const STATUS = { in_arbeit: 'In Arbeit', fertig: 'Fertig' };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },

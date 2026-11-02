@@ -27,7 +27,7 @@ PORT = int(os.environ.get("PORT", "8099"))
 
 IMAGE_EXT = (".jpg", ".jpeg", ".png", ".webp", ".heic")
 TRASH = ".papierkorb"
-STATUSES = {"", "geplant", "in_arbeit", "fertig"}
+STATUSES = {"", "in_arbeit", "fertig"}
 
 
 def library_root() -> Path:
@@ -137,7 +137,7 @@ def list_items() -> list[dict]:
             "size": stat.st_size,
             "v": version,
             "favorite": bool(m.get("favorite")),
-            "status": m.get("status", ""),
+            "status": m.get("status", "") if m.get("status", "") in STATUSES else "",
             "notes": m.get("notes", ""),
             "hasCover": cover is not None,
         })
