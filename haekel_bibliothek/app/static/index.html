@@ -184,7 +184,8 @@
     padding: 14px; cursor: pointer; transition: border-color .2s, background .2s;
   }
   .filebox:hover, .filebox.drag { border-color: var(--accent); background: var(--accent-soft); }
-  .filebox input { display: none; }
+  .filebox { position: relative; }
+  .filebox input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
   .filebox span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .filebox small { color: var(--muted); }
   .progress { height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; margin-top: 12px; display: none; }
@@ -281,7 +282,7 @@
   <div class="sheet" role="dialog" aria-modal="true">
     <h2>Neue Anleitung</h2>
     <label class="filebox" id="uPdfBox">
-      <input type="file" id="uPdf" accept="application/pdf,.pdf">
+      <input type="file" id="uPdf">
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
       <span id="uPdfName">PDF auswählen</span>
     </label>
@@ -545,6 +546,10 @@ $('#uCancel').addEventListener('click', () => $('#upload').classList.remove('ope
 $('#upload').addEventListener('click', (e) => { if (e.target.id === 'upload') $('#upload').classList.remove('open'); });
 $('#uPdf').addEventListener('change', (e) => {
   uploadFile = e.target.files[0] || null;
+  if (uploadFile && !/\.pdf$/i.test(uploadFile.name) && uploadFile.type !== 'application/pdf') {
+    toast('Das ist keine PDF: ' + uploadFile.name);
+    uploadFile = null;
+  }
   $('#uPdfName').textContent = uploadFile ? uploadFile.name : 'PDF auswählen';
   $('#uSend').disabled = !uploadFile;
 });
