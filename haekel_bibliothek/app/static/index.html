@@ -204,6 +204,19 @@
   }
   .title-input:focus { border-bottom-color: var(--accent); }
   .meta { color: var(--muted); font-size: .85rem; margin-bottom: 14px; }
+  .save-bar {
+    position: sticky; bottom: calc(-24px - env(safe-area-inset-bottom)); z-index: 3;
+    margin: 16px -20px calc(-24px - env(safe-area-inset-bottom));
+    padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
+    background: var(--surface); border-top: 1px solid var(--line);
+  }
+  @media (min-width: 700px) { .save-bar { bottom: -24px; margin-bottom: -24px; padding-bottom: 12px; } }
+  .save-btn {
+    width: 100%; border-radius: 14px; padding: 13px; font-weight: 600; font-size: 1.05rem;
+    background: var(--surface); color: var(--accent); border: 2px solid var(--accent); transition: transform .15s;
+  }
+  .save-btn:active { transform: scale(.98); }
+  .save-btn:disabled { opacity: .6; }
   .primary {
     width: 100%; border: 0; border-radius: 14px; padding: 15px; font-weight: 600; font-size: 1.05rem;
     background: var(--accent); color: var(--on-accent); transition: transform .15s;
@@ -324,6 +337,7 @@
       <button class="ghost danger" id="dDelete">Löschen</button>
     </div>
     <input type="file" id="dCoverFile" accept="image/*" hidden>
+    <div class="save-bar"><button class="save-btn" id="dSave">Speichern</button></div>
     </div>
   </div>
 </div>
@@ -654,14 +668,30 @@ function closeDetail() {
   render();
 }
 
+const pendingSaves = new Set();
 async function saveMeta(patch) {
   Object.assign(current, patch);
-  try {
-    await api('api/meta/' + current.id, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
-  } catch (e) {
-    toast('Speichern fehlgeschlagen');
-  }
+  const req = api('api/meta/' + current.id, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) })
+    .then(() => true, () => { toast('Speichern fehlgeschlagen'); return false; });
+  pendingSaves.add(req);
+  req.finally(() => pendingSaves.delete(req));
+  return req;
 }
+
+$('#dSave').addEventListener('click', async () => {
+  const btn = $('#dSave');
+  btn.disabled = true;
+  flushNotes();
+  if ($('#dNotes').value !== current.notes) saveMeta({ notes: $('#dNotes').value });
+  const t = $('#dTitle').value.trim();
+  if (t && t !== current.title) saveMeta({ title: t });
+  const results = await Promise.all([...pendingSaves]);
+  btn.disabled = false;
+  if (results.every(Boolean)) {
+    closeDetail();
+    toast('Gespeichert');
+  }
+});
 
 $('#detail').addEventListener('click', (e) => { if (e.target.id === 'detail') closeDetail(); });
 $('#dTitle').addEventListener('change', (e) => { const t = e.target.value.trim(); if (t) saveMeta({ title: t }); });
