@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Häkel-Bibliothek</title>
 <style>
+  /* Fallback-Farben; in Home Assistant werden sie per syncTheme() durch das aktive Theme (Nestzeit) ersetzt */
   :root {
     --bg: #f6f0e8;
     --surface: #fffdf9;
@@ -12,24 +13,31 @@
     --muted: #8a7d72;
     --line: #e6dccf;
     --accent: #c0573e;
-    --accent-soft: #f3ddd4;
+    --on-accent: #fff;
+    --warn: #f6c453;
+    --ok: #9fd3a8;
+    --error: #c23b2a;
     --shadow: 0 1px 2px rgba(60, 40, 20, .06), 0 6px 20px rgba(60, 40, 20, .08);
     --radius: 18px;
     color-scheme: light;
   }
   @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme="light"]) {
       --bg: #1b1715;
       --surface: #262120;
       --fg: #f2ebe4;
       --muted: #a39587;
       --line: #3a3330;
       --accent: #e27a5f;
-      --accent-soft: #4a2c24;
       --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .35);
       color-scheme: dark;
     }
   }
+  :root[data-theme="dark"] {
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .35);
+    color-scheme: dark;
+  }
+  :root { --accent-soft: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; background: var(--bg); color: var(--fg); }
   body {
@@ -75,7 +83,7 @@
     transition: background .2s, color .2s, border-color .2s, transform .15s;
   }
   .chip:active { transform: scale(.96); }
-  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
   /* Katalog */
   .grid {
@@ -111,12 +119,12 @@
   .cap .c { font-size: .78rem; color: var(--muted); }
   .badge {
     position: absolute; top: 8px; padding: 3px 9px; border-radius: 999px; font-size: .72rem; font-weight: 600;
-    background: rgba(255, 255, 255, .92); color: #2b2420; box-shadow: 0 1px 4px rgba(0,0,0,.15);
+    background: var(--surface); color: var(--fg); box-shadow: 0 1px 4px rgba(0,0,0,.15);
   }
   .badge.fav { right: 8px; color: var(--accent); font-size: .9rem; padding: 2px 7px; }
   .badge.st { left: 8px; }
-  .st-in_arbeit { background: #f6c453; }
-  .st-fertig { background: #9fd3a8; }
+  .st-in_arbeit { background: var(--warn); color: #2b2420; }
+  .st-fertig { background: var(--ok); color: #2b2420; }
 
   .empty { text-align: center; color: var(--muted); padding: 60px 24px; max-width: 460px; margin: 0 auto; line-height: 1.5; }
   .empty b { color: var(--fg); }
@@ -125,7 +133,7 @@
   .fab {
     position: fixed; right: 20px; bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 6;
     width: 60px; height: 60px; border-radius: 50%; border: 0;
-    background: var(--accent); color: #fff; font-size: 2rem; line-height: 1;
+    background: var(--accent); color: var(--on-accent); font-size: 2rem; line-height: 1;
     box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 45%, transparent);
     transition: transform .2s cubic-bezier(.2, .8, .2, 1);
   }
@@ -161,7 +169,7 @@
   .meta { color: var(--muted); font-size: .85rem; margin-bottom: 14px; }
   .primary {
     width: 100%; border: 0; border-radius: 14px; padding: 15px; font-weight: 600; font-size: 1.05rem;
-    background: var(--accent); color: #fff; transition: transform .15s;
+    background: var(--accent); color: var(--on-accent); transition: transform .15s;
   }
   .primary:active { transform: scale(.98); }
   .primary:disabled { opacity: .5; }
@@ -178,7 +186,7 @@
   textarea { min-height: 80px; resize: vertical; }
   .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
   .actions .ghost { flex: 1; }
-  .danger { color: #c23b2a; }
+  .danger { color: var(--error); }
   .filebox {
     display: flex; align-items: center; gap: 12px; border: 2px dashed var(--line); border-radius: 14px;
     padding: 14px; cursor: pointer; transition: border-color .2s, background .2s;
@@ -193,15 +201,15 @@
 
   /* PDF-Ansicht */
   .viewer {
-    position: fixed; inset: 0; z-index: 30; background: #3b3633; display: flex; flex-direction: column;
+    position: fixed; inset: 0; z-index: 30; background: var(--bg); display: flex; flex-direction: column;
     transform: translateY(100%); transition: transform .4s cubic-bezier(.2, .8, .2, 1);
   }
   .viewer.open { transform: none; }
   .vbar {
-    display: flex; align-items: center; gap: 8px; color: #fff;
-    padding: calc(10px + env(safe-area-inset-top)) 12px 10px; background: #2a2523;
+    display: flex; align-items: center; gap: 8px; color: var(--fg); border-bottom: 1px solid var(--line);
+    padding: calc(10px + env(safe-area-inset-top)) 12px 10px; background: var(--surface);
   }
-  .vbar button { background: rgba(255,255,255,.1); border: 0; color: #fff; border-radius: 10px; padding: 8px 14px; font-size: 1rem; }
+  .vbar button { background: color-mix(in srgb, var(--fg) 10%, transparent); border: 0; color: var(--fg); border-radius: 10px; padding: 8px 14px; font-size: 1rem; }
   .vbar .vt { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
   .vbar .pg { font-size: .8rem; opacity: .7; min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
   .pages { flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; padding: 12px 0 40px; }
@@ -326,6 +334,55 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 
+// ---------- Theme aus Home Assistant übernehmen ----------
+const THEME_MAP = {
+  '--bg': ['--primary-background-color'],
+  '--surface': ['--card-background-color', '--ha-card-background'],
+  '--fg': ['--primary-text-color'],
+  '--muted': ['--secondary-text-color'],
+  '--line': ['--divider-color'],
+  '--accent': ['--primary-color'],
+  '--on-accent': ['--text-primary-color'],
+  '--error': ['--error-color'],
+  '--warn': ['--warning-color'],
+  '--ok': ['--success-color'],
+};
+function luminance(color) {
+  const probe = document.createElement('span');
+  probe.style.color = color;
+  document.body.appendChild(probe);
+  const m = getComputedStyle(probe).color.match(/[\d.]+/g);
+  probe.remove();
+  if (!m) return 1;
+  const [r, g, b] = m.map(Number);
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+function syncTheme() {
+  let host = null;
+  try { if (window.parent !== window) host = window.parent.document.documentElement; } catch {}
+  if (!host) return;
+  const cs = window.parent.getComputedStyle(host);
+  const root = document.documentElement;
+  for (const [k, sources] of Object.entries(THEME_MAP)) {
+    const v = sources.map((n) => cs.getPropertyValue(n).trim()).find(Boolean);
+    if (v) root.style.setProperty(k, v); else root.style.removeProperty(k);
+  }
+  const bg = root.style.getPropertyValue('--bg');
+  if (bg) root.dataset.theme = luminance(bg) < 0.5 ? 'dark' : 'light';
+  const meta = document.querySelector('meta[name=theme-color]');
+  if (meta && bg) meta.content = bg;
+}
+try {
+  syncTheme();
+  const hostDoc = window.parent !== window ? window.parent.document : null;
+  if (hostDoc) {
+    const resync = () => { clearTimeout(syncTheme.h); syncTheme.h = setTimeout(syncTheme, 50); };
+    new MutationObserver(resync).observe(hostDoc.documentElement, { attributes: true, attributeFilter: ['style', 'class'] });
+    window.parent.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', resync);
+  }
+} catch {}
+
+const mb = (bytes) => (bytes / 1048576).toFixed(1).replace('.', ',');
 let items = [];
 let categories = [];
 let filter = store.get('filter', 'all');
@@ -578,11 +635,11 @@ $('#uSend').addEventListener('click', () => {
       toast('Anleitung hinzugefügt');
       await load();
     } else {
-      toast(xhr.responseText || 'Hochladen fehlgeschlagen');
+      toast(`Hochladen fehlgeschlagen (Fehler ${xhr.status}, ${mb(uploadFile.size)} MB)` + (xhr.responseText && xhr.responseText.length < 200 ? ': ' + xhr.responseText : ''));
       $('#uSend').disabled = false;
     }
   };
-  xhr.onerror = () => { toast('Hochladen fehlgeschlagen'); $('#uSend').disabled = false; };
+  xhr.onerror = () => { toast(`Verbindung abgebrochen (${mb(uploadFile.size)} MB)`); $('#uSend').disabled = false; };
   xhr.send(fd);
 });
 // PDF per Drag & Drop (Computer)

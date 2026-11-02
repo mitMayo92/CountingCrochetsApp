@@ -233,6 +233,19 @@ async def api_meta(request):
 
 @routes.post("/api/upload")
 async def api_upload(request):
+    length = request.content_length
+    print(f"Upload gestartet: {length / 1048576:.1f} MB" if length else "Upload gestartet (Größe unbekannt)")
+    try:
+        return await _upload(request)
+    except web.HTTPException as e:
+        print(f"Upload abgelehnt: {e.status} {e.text}")
+        raise
+    except Exception as e:  # Abbruch der Verbindung o. Ä.
+        print(f"Upload fehlgeschlagen: {type(e).__name__}: {e}")
+        raise
+
+
+async def _upload(request):
     reader = await request.multipart()
     category, pdf_path, image_part = "", None, None
     image_tmp = None
@@ -253,7 +266,9 @@ async def api_upload(request):
     tmp, name = pdf_path
     if not name.lower().endswith(".pdf"):
         name += ".pdf"
-    if tmp.read_bytes()[:5] != b"%PDF-":
+    with tmp.open("rb") as fh:
+        head = fh.read(1024)
+    if b"%PDF-" not in head:
         tmp.unlink(missing_ok=True)
         if image_tmp:
             image_tmp.unlink(missing_ok=True)
@@ -273,6 +288,7 @@ async def api_upload(request):
         meta = load_meta()
         meta.setdefault(rel, {})["added"] = int(time.time())
         save_meta(meta)
+    print(f"Upload gespeichert: {rel} ({target.stat().st_size / 1048576:.1f} MB)")
     return web.json_response({"ok": True, "id": encode_id(rel)})
 
 
