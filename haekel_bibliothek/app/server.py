@@ -704,6 +704,60 @@ async def api_wool_upload(request):
     return web.json_response({"ok": True, "count": len(saved)})
 
 
+@routes.post("/api/wool/import")
+async def api_wool_import(request):
+    """ZIP mit Bildern (Ordner = Shop/Kategorie) und optional wolle-import.json (Titel, Notizen)."""
+    import zipfile
+    body = await request.json()
+    tmp, _ = take_part(body.get("zip"))
+
+    def run():
+        added, skipped = [], 0
+        with zipfile.ZipFile(tmp) as z:
+            info = {}
+            if "wolle-import.json" in z.namelist():
+                for i, e in enumerate(json.loads(z.read("wolle-import.json"))):
+                    info[e.get("path", "")] = {**e, "_order": i}
+            for name in z.namelist():
+                parts = [p for p in name.split("/") if p]
+                if not parts or name.endswith("/") or any(p.startswith(".") or p == ".." for p in parts):
+                    continue
+                if Path(parts[-1]).suffix.lower() not in IMAGE_EXT:
+                    continue
+                folder = WOOL.joinpath(*[safe_category(p) for p in parts[:-1]]) if len(parts) > 1 else WOOL
+                folder.mkdir(parents=True, exist_ok=True)
+                target = folder / safe_name(parts[-1])
+                size = z.getinfo(name).file_size
+                if target.exists() and target.stat().st_size == size:
+                    skipped += 1
+                    continue
+                target = unique_path(folder, target.name)
+                with z.open(name) as src, target.open("wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                added.append((target.relative_to(WOOL).as_posix(), info.get(name, {})))
+        return added, skipped
+
+    try:
+        added, skipped = await asyncio.to_thread(run)
+    except zipfile.BadZipFile:
+        raise web.HTTPBadRequest(text="Die Datei ist keine gültige ZIP-Datei")
+    finally:
+        tmp.unlink(missing_ok=True)
+    async with meta_lock:
+        meta = wool_meta()
+        now = int(time.time())
+        for i, (rel, e) in enumerate(added):
+            m = meta.setdefault(rel, {})
+            m["added"] = now - e.get("_order", len(added) + i)  # Reihenfolge wie in der Vorlage
+            if e.get("title"):
+                m["title"] = str(e["title"])[:150]
+            if e.get("notes"):
+                m["notes"] = str(e["notes"])[:5000]
+        save_wool_meta(meta)
+    print(f"Woll-Import: {len(added)} Bilder hinzugefügt, {skipped} schon vorhanden")
+    return web.json_response({"ok": True, "count": len(added), "skipped": skipped})
+
+
 @routes.post("/api/wool/meta/{id}")
 async def api_wool_meta(request):
     rel = wool_path(request.match_info["id"]).relative_to(WOOL).as_posix()

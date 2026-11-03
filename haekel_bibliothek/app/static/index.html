@@ -209,6 +209,7 @@
     background: color-mix(in srgb, var(--surface) 70%, transparent); border: 1px solid var(--line); }
   .tabs button { border: 0; background: none; padding: 7px 16px; border-radius: 10px; font-weight: 600; color: var(--muted); transition: background .2s, color .2s; }
   .tabs button.on { background: var(--accent); color: var(--on-accent); }
+  .card.wool .thumb { aspect-ratio: 1 / 1; }
   .wool-img { width: 100%; max-height: 52vh; object-fit: contain; border-radius: 14px; background: var(--accent-soft); display: block; cursor: zoom-in; }
   .viewer img.wimg { display: block; margin: 0 auto; max-width: none; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.25); }
   .open-row { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -405,9 +406,9 @@
   <div class="sheet" role="dialog" aria-modal="true">
     <h2>Wolle hinzufügen</h2>
     <label class="filebox">
-      <input type="file" id="wFiles" accept="image/*" multiple>
+      <input type="file" id="wFiles" accept="image/*,.zip,application/zip" multiple>
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 17-5-5-9 8"/></svg>
-      <span id="wFilesName">Screenshots auswählen (mehrere möglich)</span>
+      <span id="wFilesName">Screenshots oder ZIP auswählen (mehrere möglich)</span>
     </label>
     <label class="lbl" for="wUpTitle">Titel <small style="text-transform:none;font-weight:400">(optional, z. B. „sawaja Preisliste“)</small></label>
     <input class="field" id="wUpTitle" autocomplete="off">
@@ -658,7 +659,7 @@ function renderWool() {
   grid.innerHTML = '';
   list.forEach((it, i) => {
     const el = document.createElement('button');
-    el.className = 'card';
+    el.className = 'card wool';
     el.dataset.wool = it.id;
     el.style.setProperty('--i', Math.min(i, 16));
     const src = `woolthumb/${it.id}?v=${it.v}`;
@@ -1447,7 +1448,7 @@ $('#wImg').addEventListener('click', openWoolImage);
 
 function openWoolUpload() {
   $('#wFiles').value = '';
-  $('#wFilesName').textContent = 'Screenshots auswählen (mehrere möglich)';
+  $('#wFilesName').textContent = 'Screenshots oder ZIP auswählen (mehrere möglich)';
   $('#wUpTitle').value = '';
   $('#wSend').disabled = true;
   $('#wProg').style.display = 'none';
@@ -1461,7 +1462,7 @@ function openWoolUpload() {
 }
 $('#wFiles').addEventListener('change', (e) => {
   const n = e.target.files.length;
-  $('#wFilesName').textContent = n ? (n === 1 ? e.target.files[0].name : `${n} Bilder ausgewählt`) : 'Screenshots auswählen (mehrere möglich)';
+  $('#wFilesName').textContent = n ? (n === 1 ? e.target.files[0].name : `${n} Dateien ausgewählt`) : 'Screenshots oder ZIP auswählen (mehrere möglich)';
   $('#wSend').disabled = !n;
 });
 $('#wCat').addEventListener('change', (e) => { $('#wCatNew').hidden = e.target.value !== '__new'; if (e.target.value === '__new') $('#wCatNew').focus(); });
@@ -1479,16 +1480,27 @@ $('#wSend').addEventListener('click', async () => {
   $('#wSend').disabled = true;
   try {
     const images = [];
+    const zips = [];
     let doneBefore = 0;
     for (const f of files) {
-      images.push(await sendFile(f, (done) => { bar.style.width = ((doneBefore + done) / total * 100) + '%'; }));
+      const part = await sendFile(f, (done) => { bar.style.width = ((doneBefore + done) / total * 100) + '%'; });
+      (/\.zip$/i.test(f.name) ? zips : images).push(part);
       doneBefore += f.size;
     }
-    const res = await woolPost('api/wool/upload', { images, category, title: $('#wUpTitle').value.trim() });
+    let count = 0, skipped = 0;
+    if (images.length) count += (await woolPost('api/wool/upload', { images, category, title: $('#wUpTitle').value.trim() })).count;
+    if (zips.length) $('#wProg').classList.add('busy');
+    for (const zip of zips) {
+      const res = await woolPost('api/wool/import', { zip });
+      count += res.count;
+      skipped += res.skipped;
+    }
+    $('#wProg').classList.remove('busy');
     $('#wupload').classList.remove('open');
-    toast(res.count === 1 ? 'Bild hinzugefügt' : `${res.count} Bilder hinzugefügt`);
+    toast((count === 1 ? '1 Bild hinzugefügt' : `${count} Bilder hinzugefügt`) + (skipped ? ` (${skipped} schon vorhanden)` : ''));
     await load();
   } catch (e) {
+    $('#wProg').classList.remove('busy');
     toast('Hochladen fehlgeschlagen: ' + e.message);
     $('#wSend').disabled = false;
   }

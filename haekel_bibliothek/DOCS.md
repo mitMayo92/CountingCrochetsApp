@@ -26,6 +26,8 @@ Grenzen: Seiten mit Login (gekaufte Anleitungen) und Seiten, die ihren Inhalt er
 Oben auf **Wolle** umschalten. Mit **+** Screenshots (Preislisten, Farbkarten, Garne) hinzufügen – mehrere auf einmal, mit Titel und Shop/Kategorie. Antippen zeigt das Bild mit Notizen; **Vollbild mit Zoom** zum genauen Lesen; blättern mit Pfeilen oder Wischen.
 Die Bilder liegen in `share/wolle` (Unterordner = Shop/Kategorie) und können auch per Dateien-App abgelegt werden. Gelöschte Bilder landen in `share/wolle/.papierkorb`.
 
+Viele Bilder auf einmal: eine **ZIP-Datei** über **+** auswählen. Ordner in der ZIP werden zu Shops/Kategorien; eine optionale `wolle-import.json` (Liste aus `path`, `title`, `notes`) liefert Titel und Notizen. Bereits vorhandene Bilder werden beim erneuten Import übersprungen.
+
 ## Mehrere PDFs pro Anleitung (z. B. Deutsch und Englisch)
 
 In der Detailansicht unter **PDFs**:
