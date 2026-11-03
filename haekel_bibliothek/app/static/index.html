@@ -1,0 +1,1516 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Häkel-Bibliothek</title>
+<style>
+  /* Fallback-Farben; in Home Assistant werden sie per syncTheme() durch das aktive Theme (Nestzeit) ersetzt */
+  :root {
+    --bg: #f6f0e8;
+    --surface: #fffdf9;
+    --fg: #2b2420;
+    --muted: #8a7d72;
+    --line: #e6dccf;
+    --accent: #c0573e;
+    --on-accent: #fff;
+    --warn: #f6c453;
+    --ok: #9fd3a8;
+    --error: #c23b2a;
+    --shadow: 0 1px 2px rgba(60, 40, 20, .06), 0 6px 20px rgba(60, 40, 20, .08);
+    --radius: 18px;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1b1715;
+      --surface: #262120;
+      --fg: #f2ebe4;
+      --muted: #a39587;
+      --line: #3a3330;
+      --accent: #e27a5f;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .35);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .35);
+    color-scheme: dark;
+  }
+  :root { --accent-soft: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { background: var(--bg); color: var(--fg); }
+  body { margin: 0; background: transparent; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  }
+  /* Seitenhintergrund: Verlauf aus dem HA-Theme (lovelace-background), sonst Grundfarbe */
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background: var(--page-bg, var(--bg));
+  }
+  :root.has-page-bg .top { background: color-mix(in srgb, var(--bg) 35%, transparent); }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+
+  /* Kopf */
+  .top {
+    position: sticky; top: 0; z-index: 5;
+    padding: calc(14px + env(safe-area-inset-top)) 16px 10px;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid transparent;
+    transition: border-color .2s;
+  }
+  .top.scrolled { border-bottom-color: var(--line); }
+  .row { display: flex; align-items: center; gap: 10px; max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em; margin: 0; flex: 1; }
+  h1 small { display: block; font-size: .8rem; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .search {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 0 12px; margin-top: 12px;
+  }
+  .search input { flex: 1; border: 0; background: none; padding: 11px 0; outline: none; min-width: 0; }
+  .search svg { width: 18px; height: 18px; color: var(--muted); flex: none; }
+  select.sort {
+    margin-top: 12px; border: 1px solid var(--line); background: var(--surface);
+    border-radius: 12px; padding: 10px 10px;
+  }
+  .chips {
+    display: flex; gap: 8px; overflow-x: auto; padding: 12px 0 2px;
+    scrollbar-width: none; max-width: 1200px; margin: 0 auto;
+  }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: none; border: 1px solid var(--line); background: var(--surface);
+    padding: 7px 14px; border-radius: 999px; font-size: .9rem; white-space: nowrap;
+    transition: background .2s, color .2s, border-color .2s, transform .15s;
+  }
+  .chip:active { transform: scale(.96); }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+  /* Katalog */
+  .grid {
+    display: grid; gap: 16px; padding: 16px; max-width: 1200px; margin: 0 auto;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+  @media (min-width: 700px) { .grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; } }
+  .card {
+    position: relative; display: flex; flex-direction: column; text-align: left;
+    border: 0; padding: 0; background: var(--surface); border-radius: var(--radius);
+    box-shadow: var(--shadow); overflow: hidden;
+    animation: rise .55s cubic-bezier(.2, .8, .2, 1) both;
+    animation-delay: calc(var(--i) * 40ms);
+    transition: transform .25s cubic-bezier(.2, .8, .2, 1), box-shadow .25s;
+  }
+  @media (hover: hover) {
+    .card:hover { transform: translateY(-4px) rotate(-.4deg); box-shadow: 0 2px 4px rgba(60,40,20,.08), 0 16px 36px rgba(60,40,20,.16); }
+  }
+  .card:active { transform: scale(.97); }
+  @keyframes rise { from { opacity: 0; transform: translateY(18px) scale(.97); } }
+  .thumb { aspect-ratio: 3 / 4; background: var(--accent-soft); overflow: hidden; position: relative; }
+  /* ganzes Bild zeigen; freie Fläche mit weichgezeichneter Kopie füllen */
+  .thumb .blur {
+    position: absolute; inset: -12%; width: 124%; height: 124%; object-fit: cover;
+    filter: blur(18px) saturate(1.2); opacity: 0; transition: opacity .5s;
+  }
+  .thumb .blur.loaded { opacity: .55; }
+  .thumb img.main {
+    position: relative; z-index: 1;
+    width: 100%; height: 100%; object-fit: contain; display: block;
+    opacity: 0; transition: opacity .5s, transform .6s cubic-bezier(.2, .8, .2, 1);
+  }
+  .thumb img.loaded { opacity: 1; }
+  .thumb .ph { position: absolute; inset: 0; display: grid; place-items: center; color: var(--accent); opacity: .5; }
+  .thumb .ph svg { width: 44px; height: 44px; }
+  .cap { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 2px; }
+  .cap .t { font-weight: 600; font-size: .95rem; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .cap .c { font-size: .78rem; color: var(--muted); }
+  .badge {
+    position: absolute; top: 8px; padding: 3px 9px; border-radius: 999px; font-size: .72rem; font-weight: 600;
+    background: var(--surface); color: var(--fg); box-shadow: 0 1px 4px rgba(0,0,0,.15);
+  }
+  .badge.fav { right: 8px; color: var(--accent); font-size: .9rem; padding: 2px 7px; }
+  .badge.st { left: 8px; }
+  .st-in_arbeit { background: var(--warn); color: #2b2420; }
+  .st-fertig { background: var(--ok); color: #2b2420; }
+
+  .empty { text-align: center; color: var(--muted); padding: 60px 24px; max-width: 460px; margin: 0 auto; line-height: 1.5; }
+  .empty b { color: var(--fg); }
+  .empty code { background: var(--surface); padding: 2px 6px; border-radius: 6px; font-size: .9em; }
+
+  .fab {
+    position: fixed; right: 20px; bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 6;
+    width: 60px; height: 60px; border-radius: 50%; border: 0;
+    background: var(--accent); color: var(--on-accent); font-size: 2rem; line-height: 1;
+    box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 45%, transparent);
+    transition: transform .2s cubic-bezier(.2, .8, .2, 1);
+  }
+  .fab:active { transform: scale(.9) rotate(90deg); }
+
+  /* Overlays */
+  .overlay {
+    position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; justify-content: center;
+    background: rgba(20, 12, 8, .45); opacity: 0; pointer-events: none; transition: opacity .25s;
+  }
+  .overlay.open { opacity: 1; pointer-events: auto; }
+  .sheet {
+    width: 100%; max-width: 560px; max-height: 92vh; overflow-y: auto;
+    background: var(--surface); border-radius: 24px 24px 0 0;
+    padding: 20px 20px calc(24px + env(safe-area-inset-bottom));
+    transform: translateY(40px); transition: transform .35s cubic-bezier(.2, .8, .2, 1);
+  }
+  .overlay.open .sheet { transform: none; }
+  @media (min-width: 700px) {
+    .overlay { align-items: center; }
+    .sheet { border-radius: 24px; padding-bottom: 24px; }
+  }
+  .sheet h2 { margin: 0 0 14px; font-size: 1.25rem; }
+  .detail-cover {
+    width: 100%; max-height: 46vh; object-fit: contain; border-radius: 14px;
+    background: var(--accent-soft); display: block; view-transition-name: none;
+  }
+  .cover-wrap { position: relative; touch-action: pan-y; }
+  .dnav {
+    position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
+    width: 44px; height: 44px; border-radius: 50%; border: 0;
+    background: color-mix(in srgb, var(--surface) 88%, transparent); color: var(--fg);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, .18); font-size: 1.6rem; line-height: 1;
+    display: grid; place-items: center; transition: opacity .2s, transform .15s;
+  }
+  .dnav:active { transform: translateY(-50%) scale(.9); }
+  .dnav:disabled { opacity: 0; pointer-events: none; }
+  #dPrev { left: 10px; }
+  #dNext { right: 10px; }
+  .dpos {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 2;
+    background: color-mix(in srgb, var(--surface) 88%, transparent); color: var(--fg);
+    padding: 3px 10px; border-radius: 999px; font-size: .78rem; font-variant-numeric: tabular-nums;
+  }
+  .dbody.out-left { animation: outL .16s ease-in forwards; }
+  .dbody.out-right { animation: outR .16s ease-in forwards; }
+  .dbody.in-left { animation: inL .28s cubic-bezier(.2, .8, .2, 1); }
+  .dbody.in-right { animation: inR .28s cubic-bezier(.2, .8, .2, 1); }
+  @keyframes outL { to { opacity: 0; transform: translateX(-40px); } }
+  @keyframes outR { to { opacity: 0; transform: translateX(40px); } }
+  @keyframes inL { from { opacity: 0; transform: translateX(40px); } }
+  @keyframes inR { from { opacity: 0; transform: translateX(-40px); } }
+  .title-input {
+    width: 100%; border: 0; background: none; font-size: 1.35rem; font-weight: 700;
+    padding: 14px 0 2px; outline: none; border-bottom: 2px solid transparent;
+  }
+  .title-input:focus { border-bottom-color: var(--accent); }
+  .meta { color: var(--muted); font-size: .85rem; margin-bottom: 14px; }
+  .source-link { display: inline-block; margin: -6px 0 14px; color: var(--accent); font-size: .9rem; text-decoration: none; }
+  .tabs { display: inline-flex; gap: 4px; padding: 4px; margin-top: 12px; border-radius: 14px;
+    background: color-mix(in srgb, var(--surface) 70%, transparent); border: 1px solid var(--line); }
+  .tabs button { border: 0; background: none; padding: 7px 16px; border-radius: 10px; font-weight: 600; color: var(--muted); transition: background .2s, color .2s; }
+  .tabs button.on { background: var(--accent); color: var(--on-accent); }
+  .card.wool .thumb { aspect-ratio: 1 / 1; }
+  .wool-img { width: 100%; max-height: 52vh; object-fit: contain; border-radius: 14px; background: var(--accent-soft); display: block; cursor: zoom-in; }
+  .viewer img.wimg { display: block; margin: 0 auto; max-width: none; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.25); }
+  .open-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .open-row .primary { flex: 1 1 120px; width: auto; }
+  .files { margin-top: 6px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .frow { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-top: 1px solid var(--line); }
+  .frow:first-child { border-top: 0; }
+  .frow .fl { flex: 1; min-width: 0; font-weight: 600; }
+  .frow .fl small { display: block; font-weight: 400; color: var(--muted); font-size: .78rem; }
+  .frow button { border: 1px solid var(--line); background: none; border-radius: 9px; padding: 5px 9px; font-size: .82rem; }
+  .file-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .file-actions .ghost { flex: 1; }
+  .badge.langs { left: 8px; top: auto; bottom: 8px; z-index: 2; letter-spacing: .03em; }
+  .pick-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; max-height: 55vh; overflow-y: auto; }
+  .pick { display: flex; align-items: center; gap: 12px; text-align: left; border: 1px solid var(--line); background: none; border-radius: 12px; padding: 6px; }
+  .pick img { width: 44px; height: 58px; object-fit: cover; border-radius: 8px; background: var(--accent-soft); flex: none; }
+  .pick span { flex: 1; min-width: 0; }
+  .pick small { display: block; color: var(--muted); }
+  .save-bar {
+    position: sticky; bottom: calc(-24px - env(safe-area-inset-bottom)); z-index: 3;
+    margin: 16px -20px calc(-24px - env(safe-area-inset-bottom));
+    padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
+    background: var(--surface); border-top: 1px solid var(--line);
+  }
+  @media (min-width: 700px) { .save-bar { bottom: -24px; margin-bottom: -24px; padding-bottom: 12px; } }
+  .save-btn {
+    width: 100%; border-radius: 14px; padding: 13px; font-weight: 600; font-size: 1.05rem;
+    background: var(--surface); color: var(--accent); border: 2px solid var(--accent); transition: transform .15s;
+  }
+  .save-btn:active { transform: scale(.98); }
+  .save-btn:disabled { opacity: .6; }
+  .primary {
+    width: 100%; border: 0; border-radius: 14px; padding: 15px; font-weight: 600; font-size: 1.05rem;
+    background: var(--accent); color: var(--on-accent); transition: transform .15s;
+  }
+  .primary:active { transform: scale(.98); }
+  .primary:disabled { opacity: .5; }
+  .seg { display: flex; gap: 6px; margin: 16px 0 10px; flex-wrap: wrap; }
+  .seg button, .ghost {
+    border: 1px solid var(--line); background: none; border-radius: 10px; padding: 8px 12px; font-size: .9rem;
+  }
+  .seg button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .favbtn.on { color: var(--accent); border-color: var(--accent); }
+  label.lbl { display: block; font-size: .8rem; color: var(--muted); margin: 14px 0 6px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  textarea, .field {
+    width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 12px; padding: 10px 12px;
+  }
+  textarea { min-height: 80px; resize: vertical; }
+  .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+  .actions .ghost { flex: 1; }
+  .danger { color: var(--error); }
+  .filebox {
+    display: flex; align-items: center; gap: 12px; border: 2px dashed var(--line); border-radius: 14px;
+    padding: 14px; cursor: pointer; transition: border-color .2s, background .2s;
+  }
+  .filebox:hover, .filebox.drag { border-color: var(--accent); background: var(--accent-soft); }
+  .filebox { position: relative; }
+  .filebox input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .filebox span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .filebox small { color: var(--muted); }
+  .progress { height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; margin-top: 12px; display: none; }
+  .progress div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .progress.busy div { width: 40% !important; animation: busy 1.1s ease-in-out infinite; }
+  @keyframes busy { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+
+  /* PDF-Ansicht */
+  .viewer {
+    position: fixed; inset: 0; z-index: 30; background: var(--bg); display: flex; flex-direction: column;
+    transform: translateY(100%); transition: transform .4s cubic-bezier(.2, .8, .2, 1);
+  }
+  .viewer.open { transform: none; }
+  .vbar {
+    display: flex; align-items: center; gap: 8px; color: var(--fg); border-bottom: 1px solid var(--line);
+    padding: calc(10px + env(safe-area-inset-top)) 12px 10px; background: var(--surface);
+  }
+  .vbar button { background: color-mix(in srgb, var(--fg) 10%, transparent); border: 0; color: var(--fg); border-radius: 10px; padding: 8px 14px; font-size: 1rem; }
+  .vbar .vt { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+  .vbar .pg { font-size: .8rem; opacity: .7; min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
+  .pages { flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; padding: 12px 0 40px; }
+  .page {
+    margin: 0 auto 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.35); position: relative;
+  }
+  .page canvas { width: 100%; height: 100%; display: block; }
+  .spinner {
+    position: absolute; inset: 0; margin: auto; width: 34px; height: 34px; border-radius: 50%;
+    border: 3px solid #ddd; border-top-color: var(--accent); animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .toast {
+    position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); z-index: 50;
+    transform: translate(-50%, 20px); opacity: 0; background: var(--fg); color: var(--bg);
+    padding: 10px 18px; border-radius: 12px; font-size: .9rem; transition: all .3s; pointer-events: none;
+    max-width: calc(100% - 32px);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  ::view-transition-old(cover), ::view-transition-new(cover) { animation-duration: .38s; animation-timing-function: cubic-bezier(.2, .8, .2, 1); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+<header class="top" id="top">
+  <div class="row">
+    <h1>Häkel-Bibliothek <small id="count"></small></h1>
+  </div>
+  <div class="row"><div class="tabs" id="tabs" role="tablist">
+    <button data-t="patterns" role="tab">Anleitungen</button>
+    <button data-t="wool" role="tab">Wolle</button>
+  </div></div>
+  <div class="row">
+    <label class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Suchen …" autocomplete="off">
+    </label>
+    <select class="sort" id="sort" aria-label="Sortierung">
+      <option value="new">Neueste</option>
+      <option value="az">A–Z</option>
+    </select>
+  </div>
+  <nav class="chips" id="chips"></nav>
+</header>
+
+<main class="grid" id="grid"></main>
+<div class="empty" id="empty" hidden></div>
+
+<button class="fab" id="add" aria-label="Anleitung hinzufügen">+</button>
+
+<!-- Detail -->
+<div class="overlay" id="detail">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <div class="dbody" id="dBody">
+    <div class="cover-wrap" id="dCoverWrap">
+      <img class="detail-cover" id="dCover" alt="">
+      <button class="dnav" id="dPrev" aria-label="Vorherige Anleitung">‹</button>
+      <button class="dnav" id="dNext" aria-label="Nächste Anleitung">›</button>
+      <span class="dpos" id="dPos"></span>
+    </div>
+    <input class="title-input" id="dTitle" aria-label="Titel">
+    <div class="meta" id="dMeta"></div>
+    <a class="source-link" id="dSource" target="_blank" rel="noopener noreferrer" hidden>Originalseite öffnen ↗</a>
+    <div class="open-row" id="dOpen"></div>
+    <div class="seg" id="dStatus">
+      <button data-s="">Kein Status</button>
+      <button data-s="in_arbeit">In Arbeit</button>
+      <button data-s="fertig">Fertig</button>
+    </div>
+    <button class="ghost favbtn" id="dFav">☆ Favorit</button>
+    <label class="lbl">PDFs <small style="text-transform:none;font-weight:400">(z. B. Deutsch und Englisch)</small></label>
+    <div class="files" id="dFiles"></div>
+    <div class="file-actions">
+      <button class="ghost" id="dAddFile">+ PDF hochladen</button>
+      <button class="ghost" id="dMerge">+ Aus Bibliothek</button>
+    </div>
+    <input type="file" id="dAddFileInput" hidden>
+    <label class="lbl" for="dNotes">Notizen</label>
+    <textarea id="dNotes" placeholder="z. B. Garn, Nadelstärke, Änderungen …"></textarea>
+    <div class="actions">
+      <button class="ghost" id="dCoverBtn">Titelbild ändern</button>
+      <button class="ghost danger" id="dDelete">Löschen</button>
+    </div>
+    <input type="file" id="dCoverFile" accept="image/*" hidden>
+    <div class="save-bar"><button class="save-btn" id="dSave">Speichern</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- Wolle: Detail -->
+<div class="overlay" id="wdetail">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <div class="dbody" id="wBody">
+    <div class="cover-wrap" id="wCoverWrap">
+      <img class="wool-img" id="wImg" alt="" title="Antippen für Vollbild">
+      <button class="dnav" id="wPrev" aria-label="Vorheriges Bild">‹</button>
+      <button class="dnav" id="wNext" aria-label="Nächstes Bild">›</button>
+      <span class="dpos" id="wPos"></span>
+    </div>
+    <input class="title-input" id="wTitle" aria-label="Titel">
+    <div class="meta" id="wMeta"></div>
+    <button class="primary" id="wFull">Vollbild mit Zoom</button>
+    <label class="lbl" for="wNotes">Notizen</label>
+    <textarea id="wNotes" placeholder="z. B. Shop, Farben, Lauflänge, was schon da ist …"></textarea>
+    <div class="actions"><button class="ghost danger" id="wDelete">Löschen</button></div>
+    <div class="save-bar"><button class="save-btn" id="wSave">Speichern</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- Wolle: Hochladen -->
+<div class="overlay" id="wupload">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <h2>Wolle hinzufügen</h2>
+    <label class="filebox">
+      <input type="file" id="wFiles" accept="image/*,.zip,application/zip" multiple>
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 17-5-5-9 8"/></svg>
+      <span id="wFilesName">Screenshots oder ZIP auswählen (mehrere möglich)</span>
+    </label>
+    <label class="lbl" for="wUpTitle">Titel <small style="text-transform:none;font-weight:400">(optional, z. B. „sawaja Preisliste“)</small></label>
+    <input class="field" id="wUpTitle" autocomplete="off">
+    <label class="lbl" for="wCat">Shop / Kategorie</label>
+    <select class="field" id="wCat"></select>
+    <input class="field" id="wCatNew" placeholder="Neuer Shop / neue Kategorie" style="margin-top:8px" hidden>
+    <div class="progress" id="wProg"><div></div></div>
+    <div class="actions">
+      <button class="ghost" id="wCancel">Abbrechen</button>
+      <button class="primary" id="wSend" style="flex:2" disabled>Hinzufügen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Eintrag zum Zusammenführen auswählen -->
+<div class="overlay" id="merge">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <h2>Fassung hinzufügen</h2>
+    <p class="meta" style="margin:0">Wähle die Anleitung, die als weitere Fassung (z. B. Englisch) zu diesem Eintrag gehört.</p>
+    <label class="search" style="margin-top:12px">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="mQ" type="search" placeholder="Suchen …" autocomplete="off">
+    </label>
+    <div class="pick-list" id="mList"></div>
+    <div class="actions"><button class="ghost" id="mCancel">Abbrechen</button></div>
+  </div>
+</div>
+
+<!-- Hochladen -->
+<div class="overlay" id="upload">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <h2>Neue Anleitung</h2>
+    <div class="seg" id="uMode" style="margin-top:0">
+      <button data-m="file" class="on">PDF-Datei</button>
+      <button data-m="link">Link zu einer Seite</button>
+    </div>
+    <div id="uLinkBox" hidden>
+      <input class="field" id="uUrl" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://… (Link zur Anleitung)">
+      <p class="meta" style="margin:8px 0 0">Die Seite wird im Lesemodus als PDF gespeichert – ohne Werbung und Cookie-Hinweise. Titel und Titelbild kommen von der Seite. Seiten mit Login (z. B. gekaufte Anleitungen) gehen nicht.</p>
+    </div>
+    <div id="uFileBox">
+    <label class="filebox" id="uPdfBox">
+      <input type="file" id="uPdf">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
+      <span id="uPdfName">PDF auswählen</span>
+    </label>
+    </div>
+    <label class="lbl">Titelbild <small style="text-transform:none;font-weight:400" id="uImgHint">(optional, sonst Seite 1)</small></label>
+    <label class="filebox">
+      <input type="file" id="uImg" accept="image/*">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 17-5-5-9 8"/></svg>
+      <span id="uImgName">Bild auswählen</span>
+    </label>
+    <label class="lbl" for="uCat">Kategorie</label>
+    <select class="field" id="uCat"></select>
+    <input class="field" id="uCatNew" placeholder="Neue Kategorie" style="margin-top:8px" hidden>
+    <div class="progress" id="uProg"><div></div></div>
+    <div class="actions">
+      <button class="ghost" id="uCancel">Abbrechen</button>
+      <button class="primary" id="uSend" style="flex:2" disabled>Hochladen</button>
+    </div>
+  </div>
+</div>
+
+<!-- PDF-Ansicht -->
+<section class="viewer" id="viewer" aria-hidden="true">
+  <div class="vbar">
+    <button id="vClose" aria-label="Schließen">‹</button>
+    <div class="vt" id="vTitle"></div>
+    <span class="pg" id="vPage"></span>
+    <button id="vOut" aria-label="Verkleinern">−</button>
+    <button id="vIn" aria-label="Vergrößern">+</button>
+  </div>
+  <div class="pages" id="pages"></div>
+</section>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+const $ = (s) => document.querySelector(s);
+const STATUS = { in_arbeit: 'In Arbeit', fertig: 'Fertig' };
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+// ---------- Theme aus Home Assistant übernehmen ----------
+const THEME_MAP = {
+  '--bg': ['--primary-background-color'],
+  '--surface': ['--card-background-color', '--ha-card-background'],
+  '--fg': ['--primary-text-color'],
+  '--muted': ['--secondary-text-color'],
+  '--line': ['--divider-color'],
+  '--accent': ['--primary-color'],
+  '--on-accent': ['--text-primary-color'],
+  '--error': ['--error-color'],
+  '--warn': ['--warning-color'],
+  '--ok': ['--success-color'],
+};
+function luminance(color) {
+  const probe = document.createElement('span');
+  probe.style.color = color;
+  document.body.appendChild(probe);
+  const m = getComputedStyle(probe).color.match(/[\d.]+/g);
+  probe.remove();
+  if (!m) return 1;
+  const [r, g, b] = m.map(Number);
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+let lastReport = '';
+function reportTheme(info) {
+  const json = JSON.stringify(info);
+  if (json === lastReport) return;
+  lastReport = json;
+  fetch('api/theme-info', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: json }).catch(() => {});
+}
+function syncTheme() {
+  let host = null;
+  try { if (window.parent !== window) host = window.parent.document.documentElement; } catch {}
+  if (!host) return;
+  const cs = window.parent.getComputedStyle(host);
+  const root = document.documentElement;
+  for (const [k, sources] of Object.entries(THEME_MAP)) {
+    const v = sources.map((n) => cs.getPropertyValue(n).trim()).find(Boolean);
+    if (v) root.style.setProperty(k, v); else root.style.removeProperty(k);
+  }
+  // Hintergrund mit Verlauf/Bild aus dem Theme
+  const gradients = {};
+  const names = new Set([...host.style, ...cs].filter((n) => n.startsWith('--')));
+  names.forEach((n) => {
+    const v = cs.getPropertyValue(n).trim();
+    if (/gradient\(|url\(/.test(v)) gradients[n] = v;
+  });
+  const pageBg = ['--lovelace-background', '--view-background', '--ha-view-background']
+    .map((n) => cs.getPropertyValue(n).trim()).find(Boolean);
+  if (pageBg) root.style.setProperty('--page-bg', pageBg); else root.style.removeProperty('--page-bg');
+  root.classList.toggle('has-page-bg', !!pageBg);
+  reportTheme({ pageBg: pageBg || null, gradients, dark: root.dataset.theme });
+
+  const bg = root.style.getPropertyValue('--bg');
+  if (bg) root.dataset.theme = luminance(bg) < 0.5 ? 'dark' : 'light';
+  const meta = document.querySelector('meta[name=theme-color]');
+  if (meta && bg) meta.content = bg;
+}
+try {
+  syncTheme();
+  const hostDoc = window.parent !== window ? window.parent.document : null;
+  if (hostDoc) {
+    const resync = () => { clearTimeout(syncTheme.h); syncTheme.h = setTimeout(syncTheme, 50); };
+    new MutationObserver(resync).observe(hostDoc.documentElement, { attributes: true, attributeFilter: ['style', 'class'] });
+    window.parent.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', resync);
+  }
+} catch {}
+
+const mb = (bytes) => (bytes / 1048576).toFixed(1).replace('.', ',');
+let items = [];
+let categories = [];
+let filter = store.get('filter', 'all');
+let sort = store.get('sort', 'new');
+let current = null;
+
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast.h);
+  toast.h = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, opts);
+  if (!res.ok) throw new Error((await res.text()) || res.statusText);
+  return res.json();
+}
+
+let section = store.get('section', 'patterns');
+let wool = [];
+let woolCats = [];
+let woolFilter = store.get('woolFilter', 'all');
+
+async function load() {
+  try {
+    const [data, w] = await Promise.all([api('api/items'), api('api/wool').catch(() => ({ items: [], categories: [] }))]);
+    items = data.items;
+    categories = data.categories;
+    wool = w.items;
+    woolCats = w.categories;
+    render();
+  } catch (e) {
+    toast('Laden fehlgeschlagen: ' + e.message);
+  }
+}
+
+// ---------- Katalog ----------
+const placeholder = '<div class="ph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="8"/><path d="M5 9c4 1 10 1 14 0M5 15c4-1 10-1 14 0M9 4.5c-2 5-2 10 0 15M15 4.5c2 5 2 10 0 15"/></svg></div>';
+
+function visible() {
+  const q = $('#q').value.trim().toLowerCase();
+  let list = items.filter((i) => {
+    if (filter === 'fav' && !i.favorite) return false;
+    if (filter === 'in_arbeit' && i.status !== 'in_arbeit') return false;
+    if (filter.startsWith('cat:') && i.category !== filter.slice(4)) return false;
+    if (q && !(i.title + ' ' + i.category + ' ' + i.notes + ' ' + i.files.map((f) => f.label).join(' ')).toLowerCase().includes(q)) return false;
+    return true;
+  });
+  if (sort === 'az') list = [...list].sort((a, b) => a.title.localeCompare(b.title, 'de'));
+  return list;
+}
+
+const SHORT = { deutsch: 'DE', englisch: 'EN', english: 'EN', französisch: 'FR', niederländisch: 'NL', spanisch: 'ES', italienisch: 'IT' };
+const short = (label) => SHORT[label.toLowerCase()] || label.slice(0, 3).toUpperCase();
+
+function renderChips() {
+  const chips = [['all', 'Alle'], ['fav', '★ Favoriten'], ['in_arbeit', 'In Arbeit'], ...categories.map((c) => ['cat:' + c, c])];
+  if (!chips.some(([k]) => k === filter)) filter = 'all';
+  $('#chips').innerHTML = chips.map(([k, l]) => `<button class="chip${k === filter ? ' on' : ''}" data-k="${esc(k)}">${esc(l)}</button>`).join('');
+}
+
+function setSection(s) {
+  section = s;
+  store.set('section', s);
+  $('#tabs').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.t === s));
+  $('#add').setAttribute('aria-label', s === 'wool' ? 'Wolle hinzufügen' : 'Anleitung hinzufügen');
+  render();
+  scrollTo({ top: 0 });
+}
+$('#tabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b && b.dataset.t !== section) setSection(b.dataset.t); });
+
+function visibleWool() {
+  const q = $('#q').value.trim().toLowerCase();
+  let list = wool.filter((i) => {
+    if (woolFilter.startsWith('cat:') && i.category !== woolFilter.slice(4)) return false;
+    if (q && !(i.title + ' ' + i.category + ' ' + i.notes).toLowerCase().includes(q)) return false;
+    return true;
+  });
+  if (sort === 'az') list = [...list].sort((a, b) => a.title.localeCompare(b.title, 'de'));
+  return list;
+}
+
+function renderWool() {
+  const chips = [['all', 'Alle'], ...woolCats.map((c) => ['cat:' + c, c])];
+  if (!chips.some(([k]) => k === woolFilter)) woolFilter = 'all';
+  $('#chips').innerHTML = chips.map(([k, l]) => `<button class="chip${k === woolFilter ? ' on' : ''}" data-k="${esc(k)}">${esc(l)}</button>`).join('');
+  const list = visibleWool();
+  $('#count').textContent = wool.length === 1 ? '1 Bild Wolle' : `${wool.length} Bilder Wolle`;
+  const grid = $('#grid');
+  grid.innerHTML = '';
+  list.forEach((it, i) => {
+    const el = document.createElement('button');
+    el.className = 'card wool';
+    el.dataset.wool = it.id;
+    el.style.setProperty('--i', Math.min(i, 16));
+    const src = `woolthumb/${it.id}?v=${it.v}`;
+    el.innerHTML = `
+      <div class="thumb">${placeholder}<img class="blur" loading="lazy" decoding="async" alt="" aria-hidden="true" src="${src}"><img class="main" loading="lazy" decoding="async" alt="" src="${src}"></div>
+      <div class="cap"><span class="t">${esc(it.title)}</span>${it.category ? `<span class="c">${esc(it.category)}</span>` : ''}</div>`;
+    el.querySelectorAll('.thumb img').forEach((img) => {
+      img.onload = () => img.classList.add('loaded');
+      img.onerror = () => img.remove();
+    });
+    grid.appendChild(el);
+  });
+  const empty = $('#empty');
+  empty.hidden = list.length > 0;
+  empty.innerHTML = wool.length ? 'Nichts gefunden.'
+    : '<b>Noch keine Wolle hinterlegt.</b><br>Tippe auf <b>+</b>, um Screenshots von Garnen, Preislisten oder Farbkarten hinzuzufügen – oder lege Bilder per Dateien-App in den Ordner <code>share/wolle</code>. Unterordner werden zu Shops/Kategorien.';
+}
+
+function render() {
+  $('#tabs').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.t === section));
+  if (section === 'wool') return renderWool();
+  renderChips();
+  const list = visible();
+  $('#count').textContent = items.length === 1 ? '1 Anleitung' : `${items.length} Anleitungen`;
+  const grid = $('#grid');
+  grid.innerHTML = '';
+  list.forEach((it, i) => {
+    const el = document.createElement('button');
+    el.className = 'card';
+    el.dataset.id = it.id;
+    el.style.setProperty('--i', Math.min(i, 16));
+    el.innerHTML = `
+      <div class="thumb">${placeholder}<img class="blur" loading="lazy" decoding="async" alt="" aria-hidden="true" src="thumb/${it.id}?v=${it.v}"><img class="main" loading="lazy" decoding="async" alt="" src="thumb/${it.id}?v=${it.v}">${it.files.length > 1 ? `<span class="badge langs">${it.files.map((f) => esc(short(f.label))).join(' · ')}</span>` : ''}</div>
+      <div class="cap"><span class="t">${esc(it.title)}</span>${it.category ? `<span class="c">${esc(it.category)}</span>` : ''}</div>
+      ${it.favorite ? '<span class="badge fav">★</span>' : ''}
+      ${STATUS[it.status] ? `<span class="badge st st-${it.status}">${STATUS[it.status]}</span>` : ''}`;
+    const img = el.querySelector('img');
+    el.querySelectorAll('.thumb img').forEach((img) => {
+      img.onload = () => img.classList.add('loaded');
+      img.onerror = () => img.remove();
+    });
+    grid.appendChild(el);
+  });
+  const empty = $('#empty');
+  empty.hidden = list.length > 0;
+  if (!items.length) {
+    empty.innerHTML = '<b>Noch keine Anleitungen.</b><br>Tippe auf <b>+</b>, um eine PDF hochzuladen, oder lege PDFs per Dateien-App in den Ordner <code>share/haekeln</code> (Server <code>smb://homeassistant.local</code>). Unterordner werden zu Kategorien.';
+  } else {
+    empty.innerHTML = 'Nichts gefunden.';
+  }
+}
+
+$('#chips').addEventListener('click', (e) => {
+  const b = e.target.closest('.chip');
+  if (!b) return;
+  if (section === 'wool') { woolFilter = b.dataset.k; store.set('woolFilter', woolFilter); }
+  else { filter = b.dataset.k; store.set('filter', filter); }
+  render();
+});
+$('#q').addEventListener('input', () => { clearTimeout(render.h); render.h = setTimeout(render, 120); });
+$('#sort').value = sort;
+$('#sort').addEventListener('change', (e) => { sort = e.target.value; store.set('sort', sort); render(); });
+addEventListener('scroll', () => $('#top').classList.toggle('scrolled', scrollY > 4), { passive: true });
+
+// ---------- Detail ----------
+function transition(fn) {
+  if (document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    return document.startViewTransition(fn);
+  }
+  fn();
+}
+
+$('#grid').addEventListener('click', (e) => {
+  const card = e.target.closest('.card');
+  if (!card) return;
+  if (card.dataset.wool) return openWool(wool.find((i) => i.id === card.dataset.wool));
+  const it = items.find((i) => i.id === card.dataset.id);
+  const img = card.querySelector('img');
+  if (img) img.style.viewTransitionName = 'cover';
+  transition(() => {
+    if (img) img.style.viewTransitionName = '';
+    openDetail(it);
+  });
+});
+
+let detailList = [];
+
+function openDetail(it) {
+  detailList = visible();
+  fillDetail(it);
+  const cover = $('#dCover');
+  cover.style.viewTransitionName = 'cover';
+  $('#detail').classList.add('open');
+  setTimeout(() => (cover.style.viewTransitionName = ''), 450);
+}
+
+function fillDetail(it) {
+  current = it;
+  $('#dCover').src = `thumb/${it.id}?v=${it.v}`;
+  $('#dTitle').value = it.title;
+  const mb = (it.size / 1048576).toFixed(1).replace('.', ',');
+  const date = new Date(it.added * 1000).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
+  $('#dMeta').textContent = [it.category || 'Ohne Kategorie', date, it.files.length > 1 ? `${it.files.length} PDFs` : mb + ' MB'].join(' · ');
+  $('#dNotes').value = it.notes;
+  $('#dSource').hidden = !it.source;
+  if (it.source) $('#dSource').href = it.source;
+  renderFiles();
+  syncDetailControls();
+  const idx = detailList.findIndex((i) => i.id === it.id);
+  $('#dPrev').disabled = idx <= 0;
+  $('#dNext').disabled = idx < 0 || idx >= detailList.length - 1;
+  $('#dPos').textContent = idx >= 0 && detailList.length > 1 ? `${idx + 1} / ${detailList.length}` : '';
+  $('#dPos').hidden = !$('#dPos').textContent;
+  // Nachbarbilder vorladen, damit das Blättern sofort wirkt
+  [detailList[idx - 1], detailList[idx + 1]].forEach((n) => { if (n) new Image().src = `thumb/${n.id}?v=${n.v}`; });
+}
+
+function flushNotes() {
+  if (!saveMeta.h || !current) return;
+  clearTimeout(saveMeta.h);
+  saveMeta.h = null;
+  if ($('#dNotes').value !== current.notes) saveMeta({ notes: $('#dNotes').value });
+}
+
+let navBusy = false;
+function stepDetail(dir) {
+  const idx = detailList.findIndex((i) => i.id === current?.id);
+  const next = detailList[idx + dir];
+  if (!next || navBusy || !$('#detail').classList.contains('open')) return;
+  navBusy = true;
+  flushNotes();
+  const t = $('#dTitle').value.trim();
+  if (t && t !== current.title) saveMeta({ title: t });
+  const body = $('#dBody');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const swap = () => {
+    body.className = 'dbody';
+    fillDetail(next);
+    if (!reduce) { void body.offsetWidth; body.classList.add(dir > 0 ? 'in-left' : 'in-right'); }
+    navBusy = false;
+  };
+  if (reduce) return swap();
+  body.className = 'dbody';
+  void body.offsetWidth;
+  body.classList.add(dir > 0 ? 'out-left' : 'out-right');
+  let done = false;
+  const finish = () => { if (!done) { done = true; swap(); } };
+  body.addEventListener('animationend', finish, { once: true });
+  setTimeout(finish, 300);
+}
+
+$('#dPrev').addEventListener('click', () => stepDetail(-1));
+$('#dNext').addEventListener('click', () => stepDetail(1));
+{
+  let sx = 0, sy = 0, tracking = false;
+  const wrap = $('#dCoverWrap');
+  wrap.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; tracking = true; }, { passive: true });
+  wrap.addEventListener('touchend', (e) => {
+    if (!tracking) return;
+    tracking = false;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) stepDetail(dx < 0 ? 1 : -1);
+  }, { passive: true });
+}
+
+function syncDetailControls() {
+  $('#dStatus').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.s === current.status));
+  const fav = $('#dFav');
+  fav.classList.toggle('on', current.favorite);
+  fav.textContent = current.favorite ? '★ Favorit' : '☆ Favorit';
+}
+
+function closeDetail() {
+  flushNotes();
+  $('#detail').classList.remove('open');
+  render();
+}
+
+const pendingSaves = new Set();
+async function saveMeta(patch) {
+  Object.assign(current, patch);
+  const req = api('api/meta/' + current.id, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) })
+    .then(() => true, () => { toast('Speichern fehlgeschlagen'); return false; });
+  pendingSaves.add(req);
+  req.finally(() => pendingSaves.delete(req));
+  return req;
+}
+
+$('#dSave').addEventListener('click', async () => {
+  const btn = $('#dSave');
+  btn.disabled = true;
+  flushNotes();
+  if ($('#dNotes').value !== current.notes) saveMeta({ notes: $('#dNotes').value });
+  const t = $('#dTitle').value.trim();
+  if (t && t !== current.title) saveMeta({ title: t });
+  const results = await Promise.all([...pendingSaves]);
+  btn.disabled = false;
+  if (results.every(Boolean)) {
+    closeDetail();
+    toast('Gespeichert');
+  }
+});
+
+$('#detail').addEventListener('click', (e) => { if (e.target.id === 'detail') closeDetail(); });
+$('#dTitle').addEventListener('change', (e) => { const t = e.target.value.trim(); if (t) saveMeta({ title: t }); });
+$('#dTitle').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); });
+$('#dNotes').addEventListener('input', (e) => {
+  clearTimeout(saveMeta.h);
+  saveMeta.h = setTimeout(() => saveMeta({ notes: e.target.value }), 600);
+});
+$('#dStatus').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  saveMeta({ status: b.dataset.s });
+  syncDetailControls();
+});
+$('#dFav').addEventListener('click', () => { saveMeta({ favorite: !current.favorite }); syncDetailControls(); });
+function renderFiles() {
+  const files = current.files;
+  $('#dOpen').innerHTML = files.length > 1
+    ? files.map((f, i) => `<button class="primary" data-i="${i}">${esc(f.label)} öffnen</button>`).join('')
+    : '<button class="primary" data-i="0">Anleitung öffnen</button>';
+  $('#dFiles').innerHTML = files.map((f, i) => `
+    <div class="frow">
+      <span class="fl">${esc(f.label)}<small>${i === 0 ? 'Haupt-PDF · ' : ''}${mb(f.size)} MB</small></span>
+      <button data-act="label" data-i="${i}">Umbenennen</button>
+      ${i > 0 ? `<button data-act="split" data-i="${i}">Abtrennen</button>` : ''}
+    </div>`).join('');
+}
+
+async function refreshCurrent() {
+  await load();
+  const fresh = items.find((i) => i.id === current.id);
+  if (fresh) {
+    detailList = detailList.map((i) => (i.id === fresh.id ? fresh : i)).filter((i) => items.some((x) => x.id === i.id));
+    fillDetail(fresh);
+  }
+}
+
+$('#dOpen').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (b) openViewer(current, current.files[+b.dataset.i]);
+});
+
+$('#dFiles').addEventListener('click', async (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const f = current.files[+b.dataset.i];
+  const post = (path, body) => api(`api/files/${current.id}/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  try {
+    if (b.dataset.act === 'label') {
+      const label = prompt('Bezeichnung der PDF (z. B. Deutsch, Englisch):', f.label);
+      if (!label || !label.trim() || label.trim() === f.label) return;
+      await post('label', { file: f.id, label: label.trim() });
+    } else if (b.dataset.act === 'split') {
+      if (!confirm(`„${f.label}“ abtrennen?\n\nDie PDF wird wieder ein eigener Eintrag in der Übersicht.`)) return;
+      await post('split', { file: f.id });
+      toast('Abgetrennt');
+    }
+    await refreshCurrent();
+  } catch (err) {
+    toast(err.message);
+  }
+});
+
+$('#dAddFile').addEventListener('click', () => $('#dAddFileInput').click());
+$('#dAddFileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') return toast('Das ist keine PDF: ' + file.name);
+  const guess = /english|englisch|pattern|(^|[^a-z])en([^a-z]|$)/i.test(file.name) ? 'Englisch' : (/deutsch|german|anleitung|(^|[^a-z])de([^a-z]|$)/i.test(file.name) ? 'Deutsch' : '');
+  const label = prompt('Bezeichnung dieser PDF (z. B. Deutsch, Englisch):', guess);
+  if (label === null) return;
+  const btn = $('#dAddFile');
+  btn.disabled = true;
+  try {
+    const pdf = await sendFile(file, (done, total) => { btn.textContent = `Lädt … ${Math.round(done / total * 100)} %`; });
+    await api(`api/files/${current.id}/add`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pdf, label: label.trim() }) });
+    await refreshCurrent();
+    toast('PDF hinzugefügt');
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '+ PDF hochladen';
+  }
+});
+
+// Bestehenden Eintrag als Fassung übernehmen
+function renderMergeList() {
+  const q = $('#mQ').value.trim().toLowerCase();
+  const list = items
+    .filter((i) => i.id !== current.id && (!q || (i.title + ' ' + i.category).toLowerCase().includes(q)))
+    .sort((a, b) => a.title.localeCompare(b.title, 'de'));
+  $('#mList').innerHTML = list.map((i) => `
+    <button class="pick" data-id="${i.id}">
+      <img loading="lazy" alt="" src="thumb/${i.id}?v=${i.v}">
+      <span>${esc(i.title)}<small>${esc(i.category || 'Ohne Kategorie')}${i.files.length > 1 ? ' · ' + i.files.length + ' PDFs' : ''}</small></span>
+    </button>`).join('') || '<p class="meta">Nichts gefunden.</p>';
+}
+$('#dMerge').addEventListener('click', () => {
+  $('#mQ').value = '';
+  renderMergeList();
+  $('#merge').classList.add('open');
+});
+$('#mQ').addEventListener('input', renderMergeList);
+$('#mCancel').addEventListener('click', () => $('#merge').classList.remove('open'));
+$('#merge').addEventListener('click', (e) => { if (e.target.id === 'merge') $('#merge').classList.remove('open'); });
+$('#mList').addEventListener('click', async (e) => {
+  const b = e.target.closest('.pick');
+  if (!b) return;
+  const other = items.find((i) => i.id === b.dataset.id);
+  if (!confirm(`„${other.title}“ als weitere Fassung zu „${current.title}“ hinzufügen?\n\nTitel und Titelbild von „${current.title}“ bleiben. Notizen werden übernommen. Mit „Abtrennen“ lässt sich das rückgängig machen.`)) return;
+  try {
+    await api(`api/files/${current.id}/merge`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from: other.id }) });
+    $('#merge').classList.remove('open');
+    await refreshCurrent();
+    toast('Zusammengeführt');
+  } catch (err) {
+    toast(err.message);
+  }
+});
+$('#dCoverBtn').addEventListener('click', () => $('#dCoverFile').click());
+$('#dCoverFile').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const image = await sendFile(f);
+    await api('api/cover/' + current.id, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image }) });
+    await load();
+    current = items.find((i) => i.id === current.id) || current;
+    $('#dCover').src = `thumb/${current.id}?v=${current.v}&t=${Date.now()}`;
+    toast('Titelbild geändert');
+  } catch (err) {
+    toast(err.message);
+  }
+});
+$('#dDelete').addEventListener('click', async () => {
+  const n = current.files.length;
+  if (!confirm(`„${current.title}“ löschen?\n\n${n > 1 ? `Alle ${n} PDFs werden` : 'Die Datei wird'} in den Ordner „.papierkorb“ verschoben.`)) return;
+  try {
+    await api('api/items/' + current.id, { method: 'DELETE' });
+    items = items.filter((i) => i.id !== current.id);
+    closeDetail();
+    toast('Gelöscht');
+  } catch (e) {
+    toast(e.message);
+  }
+});
+
+// ---------- Hochladen ----------
+function openUpload(file) {
+  $('#uPdf').value = '';
+  $('#uImg').value = '';
+  $('#uPdfName').textContent = 'PDF auswählen';
+  $('#uImgName').textContent = 'Bild auswählen';
+  $('#uSend').disabled = true;
+  $('#uProg').style.display = 'none';
+  const cat = $('#uCat');
+  const preset = filter.startsWith('cat:') ? filter.slice(4) : '';
+  cat.innerHTML = '<option value="">Ohne Kategorie</option>' +
+    categories.map((c) => `<option${c === preset ? ' selected' : ''}>${esc(c)}</option>`).join('') +
+    '<option value="__new">+ Neue Kategorie …</option>';
+  $('#uCatNew').hidden = true;
+  $('#uCatNew').value = '';
+  uploadFile = file || null;
+  if (file) { $('#uPdfName').textContent = file.name; $('#uSend').disabled = false; }
+  $('#uUrl').value = '';
+  setUploadMode('file');
+  $('#upload').classList.add('open');
+}
+let uploadMode = 'file';
+function setUploadMode(m) {
+  uploadMode = m;
+  $('#uMode').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.m === m));
+  $('#uFileBox').hidden = m !== 'file';
+  $('#uLinkBox').hidden = m !== 'link';
+  $('#uSend').textContent = m === 'link' ? 'Hinzufügen' : 'Hochladen';
+  $('#uImgHint').textContent = m === 'link' ? '(optional, sonst Bild der Seite)' : '(optional, sonst Seite 1)';
+  $('#uSend').disabled = m === 'link' ? !$('#uUrl').value.trim() : !uploadFile;
+  if (m === 'link') setTimeout(() => $('#uUrl').focus(), 50);
+}
+$('#uMode').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setUploadMode(b.dataset.m); });
+$('#uUrl').addEventListener('input', () => { $('#uSend').disabled = !$('#uUrl').value.trim(); });
+$('#uUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter' && $('#uUrl').value.trim()) $('#uSend').click(); });
+
+async function importLink(category) {
+  const url = $('#uUrl').value.trim();
+  const btn = $('#uSend');
+  btn.disabled = true;
+  btn.textContent = 'Seite wird gespeichert …';
+  const prog = $('#uProg');
+  prog.style.display = 'block';
+  prog.firstElementChild.style.width = '100%';
+  prog.classList.add('busy');
+  try {
+    const imgFile = $('#uImg').files[0];
+    const image = imgFile ? await sendFile(imgFile) : null;
+    await api('api/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, category, image }) });
+    $('#upload').classList.remove('open');
+    toast('Anleitung hinzugefügt');
+    await load();
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    prog.classList.remove('busy');
+    prog.style.display = 'none';
+    btn.textContent = 'Hinzufügen';
+    btn.disabled = false;
+  }
+}
+let uploadFile = null;
+$('#add').addEventListener('click', () => (section === 'wool' ? openWoolUpload() : openUpload()));
+$('#uCancel').addEventListener('click', () => $('#upload').classList.remove('open'));
+$('#upload').addEventListener('click', (e) => { if (e.target.id === 'upload') $('#upload').classList.remove('open'); });
+$('#uPdf').addEventListener('change', (e) => {
+  uploadFile = e.target.files[0] || null;
+  if (uploadFile && !/\.pdf$/i.test(uploadFile.name) && uploadFile.type !== 'application/pdf') {
+    toast('Das ist keine PDF: ' + uploadFile.name);
+    uploadFile = null;
+  }
+  $('#uPdfName').textContent = uploadFile ? uploadFile.name : 'PDF auswählen';
+  $('#uSend').disabled = !uploadFile;
+});
+$('#uImg').addEventListener('change', (e) => { $('#uImgName').textContent = e.target.files[0]?.name || 'Bild auswählen'; });
+$('#uCat').addEventListener('change', (e) => {
+  const isNew = e.target.value === '__new';
+  $('#uCatNew').hidden = !isNew;
+  if (isNew) $('#uCatNew').focus();
+});
+// Home Assistant (Ingress) erlaubt höchstens 16 MB pro Anfrage → Datei in Stücken senden
+const CHUNK = 8 * 1024 * 1024;
+
+function postChunk(url, blob, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = (e) => onProgress(e.loaded);
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch {}
+      if (xhr.status === 200 || xhr.status === 409) resolve(data);
+      else reject(new Error(`Fehler ${xhr.status}` + (xhr.responseText && xhr.responseText.length < 200 ? ': ' + xhr.responseText : '')));
+    };
+    xhr.onerror = () => reject(new Error('Verbindung abgebrochen'));
+    xhr.send(blob);
+  });
+}
+
+async function sendFile(file, onProgress = () => {}) {
+  const id = (crypto.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, '');
+  let offset = 0;
+  let retries = 0;
+  do {
+    const end = Math.min(offset + CHUNK, file.size);
+    try {
+      const res = await postChunk(`api/chunk?id=${id}&offset=${offset}`, file.slice(offset, end), (loaded) => onProgress(offset + loaded, file.size));
+      offset = res.size ?? end;
+      retries = 0;
+    } catch (e) {
+      if (++retries > 3) throw e;
+      await new Promise((r) => setTimeout(r, 1000 * retries));
+    }
+  } while (offset < file.size);
+  onProgress(file.size, file.size);
+  return { id, name: file.name, size: file.size };
+}
+
+$('#uSend').addEventListener('click', async () => {
+  const catSel = $('#uCat').value;
+  const category = catSel === '__new' ? $('#uCatNew').value.trim() : catSel;
+  if (uploadMode === 'link') return importLink(category);
+  if (!uploadFile) return;
+  const file = uploadFile;
+  const image = $('#uImg').files[0];
+  const prog = $('#uProg');
+  const bar = prog.firstElementChild;
+  const total = file.size + (image ? image.size : 0);
+  prog.style.display = 'block';
+  bar.style.width = '0';
+  $('#uSend').disabled = true;
+  try {
+    const pdf = await sendFile(file, (done) => { bar.style.width = (done / total * 100) + '%'; });
+    const img = image ? await sendFile(image, (done) => { bar.style.width = ((file.size + done) / total * 100) + '%'; }) : null;
+    await api('api/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pdf, image: img, category }),
+    });
+    $('#upload').classList.remove('open');
+    toast('Anleitung hinzugefügt');
+    await load();
+  } catch (e) {
+    toast(`Hochladen fehlgeschlagen (${mb(file.size)} MB): ${e.message}`);
+    $('#uSend').disabled = false;
+  }
+});
+// PDF per Drag & Drop (Computer)
+addEventListener('dragover', (e) => e.preventDefault());
+addEventListener('drop', (e) => {
+  e.preventDefault();
+  const f = [...(e.dataTransfer?.files || [])].find((x) => /\.pdf$/i.test(x.name));
+  if (f) openUpload(f);
+});
+
+// ---------- PDF-Ansicht ----------
+let pdfjs = null;
+let doc = null;
+let zoom = 1;
+let observer = null;
+let wakeLock = null;
+const pageEls = [];
+
+async function loadPdfjs() {
+  if (!pdfjs) {
+    pdfjs = await import('./pdfjs/build/pdf.min.mjs');
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs/build/pdf.worker.min.mjs', location.href).href;
+  }
+  return pdfjs;
+}
+
+let viewerFile = null;
+async function openViewer(it, file = it.files[0]) {
+  viewerFile = file;
+  const viewer = $('#viewer');
+  const pages = $('#pages');
+  pages.innerHTML = '<div class="spinner" style="position:relative;margin:40px auto"></div>';
+  $('#vTitle').textContent = it.files.length > 1 ? `${it.title} · ${file.label}` : it.title;
+  $('#vPage').textContent = '';
+  viewer.classList.add('open');
+  viewer.setAttribute('aria-hidden', 'false');
+  history.pushState({ viewer: true }, '');
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {}
+  try {
+    const lib = await loadPdfjs();
+    doc = await lib.getDocument({
+      url: 'file/' + file.id,
+      cMapUrl: 'pdfjs/cmaps/', cMapPacked: true,
+      standardFontDataUrl: 'pdfjs/standard_fonts/',
+    }).promise;
+  } catch (e) {
+    pages.innerHTML = '';
+    toast('PDF konnte nicht geöffnet werden');
+    return;
+  }
+  zoom = store.get('zoom', 1);
+  pages.innerHTML = '';
+  pageEls.length = 0;
+  observer?.disconnect();
+  observer = new IntersectionObserver((entries) => {
+    entries.forEach((en) => { if (en.isIntersecting) renderPage(en.target); });
+  }, { root: pages, rootMargin: '150% 0px' });
+  for (let n = 1; n <= doc.numPages; n++) {
+    const page = await doc.getPage(n);
+    const vp = page.getViewport({ scale: 1 });
+    const el = document.createElement('div');
+    el.className = 'page';
+    el._page = page;
+    el._ratio = vp.height / vp.width;
+    el.innerHTML = '<div class="spinner"></div>';
+    pages.appendChild(el);
+    pageEls.push(el);
+  }
+  layout();
+  pageEls.forEach((el) => observer.observe(el));
+  const pos = store.get('pos:' + file.id, 0);
+  requestAnimationFrame(() => { pages.scrollTop = pos * pages.scrollHeight; updatePageNo(); });
+}
+
+let viewerImg = null;
+function layout() {
+  const base = Math.min($('#pages').clientWidth - 16, 1000);
+  const w = Math.round(base * zoom);
+  if (viewerImg) viewerImg.style.width = w + 'px';
+  pageEls.forEach((el) => {
+    el.style.width = w + 'px';
+    el.style.height = Math.round(w * el._ratio) + 'px';
+    el._width = w;
+  });
+}
+
+async function renderPage(el) {
+  if (el._rendered === el._width || el._busy) return;
+  el._busy = true;
+  const width = el._width;
+  const vp1 = el._page.getViewport({ scale: 1 });
+  let dpr = window.devicePixelRatio || 1;
+  const maxPixels = 12e6;
+  const cssScale = width / vp1.width;
+  while (vp1.width * cssScale * dpr * vp1.height * cssScale * dpr > maxPixels && dpr > 1) dpr -= .25;
+  const vp = el._page.getViewport({ scale: cssScale * dpr });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.floor(vp.width);
+  canvas.height = Math.floor(vp.height);
+  try {
+    await el._page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+    el.replaceChildren(canvas);
+    el._rendered = width;
+  } catch {}
+  el._busy = false;
+  if (el._rendered !== el._width) renderPage(el);
+}
+
+function setZoom(z) {
+  const pages = $('#pages');
+  const ratio = pages.scrollTop / Math.max(1, pages.scrollHeight);
+  zoom = Math.min(3, Math.max(.5, z));
+  store.set('zoom', zoom);
+  layout();
+  pages.scrollTop = ratio * pages.scrollHeight;
+  pageEls.forEach((el) => {
+    const r = el.getBoundingClientRect();
+    if (r.bottom > -innerHeight && r.top < innerHeight * 2) renderPage(el);
+  });
+}
+
+function updatePageNo() {
+  if (!pageEls.length) return;
+  const mid = innerHeight / 2;
+  let n = 1;
+  pageEls.forEach((el, i) => { if (el.getBoundingClientRect().top < mid) n = i + 1; });
+  $('#vPage').textContent = `${n} / ${pageEls.length}`;
+}
+
+$('#pages').addEventListener('scroll', () => {
+  clearTimeout(updatePageNo.h);
+  updatePageNo.h = setTimeout(() => {
+    updatePageNo();
+    const p = $('#pages');
+    if (viewerFile) store.set('pos:' + viewerFile.id, p.scrollTop / Math.max(1, p.scrollHeight));
+  }, 150);
+}, { passive: true });
+$('#vIn').addEventListener('click', () => setZoom(zoom + .25));
+$('#vOut').addEventListener('click', () => setZoom(zoom - .25));
+$('#vClose').addEventListener('click', () => history.back());
+addEventListener('popstate', () => { if ($('#viewer').classList.contains('open')) closeViewer(); });
+addEventListener('resize', () => { if (pageEls.length || viewerImg) setZoom(zoom); });
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && $('#viewer').classList.contains('open')) {
+    try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {}
+  }
+});
+addEventListener('keydown', (e) => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName);
+  if (!typing && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && $('#detail').classList.contains('open') && !$('#viewer').classList.contains('open') && !$('#merge').classList.contains('open')) {
+    e.preventDefault();
+    stepDetail(e.key === 'ArrowRight' ? 1 : -1);
+    return;
+  }
+  if (!typing && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && $('#wdetail').classList.contains('open') && !$('#viewer').classList.contains('open')) {
+    e.preventDefault();
+    stepWool(e.key === 'ArrowRight' ? 1 : -1);
+    return;
+  }
+  if (e.key !== 'Escape') return;
+  if ($('#viewer').classList.contains('open')) history.back();
+  else if ($('#wupload').classList.contains('open')) $('#wupload').classList.remove('open');
+  else if ($('#wdetail').classList.contains('open')) closeWool();
+  else if ($('#merge').classList.contains('open')) $('#merge').classList.remove('open');
+  else if ($('#upload').classList.contains('open')) $('#upload').classList.remove('open');
+  else if ($('#detail').classList.contains('open')) closeDetail();
+});
+
+function closeViewer() {
+  $('#viewer').classList.remove('open');
+  $('#viewer').setAttribute('aria-hidden', 'true');
+  observer?.disconnect();
+  wakeLock?.release().catch(() => {});
+  wakeLock = null;
+  setTimeout(() => {
+    $('#pages').innerHTML = '';
+    pageEls.length = 0;
+    viewerImg = null;
+    doc?.destroy();
+    doc = null;
+  }, 400);
+}
+
+// ---------- Wolle ----------
+let wCurrent = null;
+let wList = [];
+const woolPost = (path, body) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+function openWool(it) {
+  wList = visibleWool();
+  fillWool(it);
+  $('#wdetail').classList.add('open');
+}
+function fillWool(it) {
+  wCurrent = it;
+  $('#wImg').src = `wool/${it.id}?v=${it.v}`;
+  $('#wTitle').value = it.title;
+  const date = new Date(it.added * 1000).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
+  $('#wMeta').textContent = [it.category || 'Ohne Kategorie', date].join(' · ');
+  $('#wNotes').value = it.notes;
+  const idx = wList.findIndex((i) => i.id === it.id);
+  $('#wPrev').disabled = idx <= 0;
+  $('#wNext').disabled = idx < 0 || idx >= wList.length - 1;
+  $('#wPos').textContent = idx >= 0 && wList.length > 1 ? `${idx + 1} / ${wList.length}` : '';
+  $('#wPos').hidden = !$('#wPos').textContent;
+  [wList[idx - 1], wList[idx + 1]].forEach((n) => { if (n) new Image().src = `wool/${n.id}?v=${n.v}`; });
+}
+async function saveWool() {
+  if (!wCurrent) return true;
+  const patch = {};
+  const t = $('#wTitle').value.trim();
+  if (t && t !== wCurrent.title) patch.title = t;
+  if ($('#wNotes').value !== wCurrent.notes) patch.notes = $('#wNotes').value;
+  if (!Object.keys(patch).length) return true;
+  try {
+    await woolPost('api/wool/meta/' + wCurrent.id, patch);
+    Object.assign(wCurrent, patch);
+    return true;
+  } catch {
+    toast('Speichern fehlgeschlagen');
+    return false;
+  }
+}
+async function stepWool(dir) {
+  const idx = wList.findIndex((i) => i.id === wCurrent?.id);
+  const next = wList[idx + dir];
+  if (!next) return;
+  await saveWool();
+  const body = $('#wBody');
+  body.className = 'dbody';
+  void body.offsetWidth;
+  fillWool(next);
+  body.classList.add(dir > 0 ? 'in-left' : 'in-right');
+}
+async function closeWool() {
+  await saveWool();
+  $('#wdetail').classList.remove('open');
+  render();
+}
+$('#wPrev').addEventListener('click', (e) => { e.stopPropagation(); stepWool(-1); });
+$('#wNext').addEventListener('click', (e) => { e.stopPropagation(); stepWool(1); });
+{
+  let sx = 0, sy = 0;
+  const wrap = $('#wCoverWrap');
+  wrap.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+  wrap.addEventListener('touchend', (e) => {
+    const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) stepWool(dx < 0 ? 1 : -1);
+  }, { passive: true });
+}
+$('#wdetail').addEventListener('click', (e) => { if (e.target.id === 'wdetail') closeWool(); });
+$('#wSave').addEventListener('click', async () => {
+  if (await saveWool()) { $('#wdetail').classList.remove('open'); render(); toast('Gespeichert'); }
+});
+$('#wDelete').addEventListener('click', async () => {
+  if (!confirm(`„${wCurrent.title}“ löschen?\n\nDas Bild wird in den Ordner „wolle/.papierkorb“ verschoben.`)) return;
+  try {
+    await api('api/wool/' + wCurrent.id, { method: 'DELETE' });
+    wool = wool.filter((i) => i.id !== wCurrent.id);
+    wCurrent = null;
+    $('#wdetail').classList.remove('open');
+    render();
+    toast('Gelöscht');
+  } catch (e) { toast(e.message); }
+});
+function openWoolImage() {
+  const it = wCurrent;
+  const viewer = $('#viewer');
+  $('#vTitle').textContent = it.title;
+  $('#vPage').textContent = '';
+  pageEls.length = 0;
+  viewerFile = null;
+  zoom = 1;
+  const img = document.createElement('img');
+  img.className = 'wimg';
+  img.alt = it.title;
+  img.src = `wool/${it.id}?v=${it.v}`;
+  $('#pages').replaceChildren(img);
+  viewerImg = img;
+  viewer.classList.add('open');
+  viewer.setAttribute('aria-hidden', 'false');
+  history.pushState({ viewer: true }, '');
+  layout();
+}
+$('#wFull').addEventListener('click', openWoolImage);
+$('#wImg').addEventListener('click', openWoolImage);
+
+function openWoolUpload() {
+  $('#wFiles').value = '';
+  $('#wFilesName').textContent = 'Screenshots oder ZIP auswählen (mehrere möglich)';
+  $('#wUpTitle').value = '';
+  $('#wSend').disabled = true;
+  $('#wProg').style.display = 'none';
+  const preset = woolFilter.startsWith('cat:') ? woolFilter.slice(4) : '';
+  $('#wCat').innerHTML = '<option value="">Ohne Kategorie</option>' +
+    woolCats.map((c) => `<option${c === preset ? ' selected' : ''}>${esc(c)}</option>`).join('') +
+    '<option value="__new">+ Neuer Shop / neue Kategorie …</option>';
+  $('#wCatNew').hidden = true;
+  $('#wCatNew').value = '';
+  $('#wupload').classList.add('open');
+}
+$('#wFiles').addEventListener('change', (e) => {
+  const n = e.target.files.length;
+  $('#wFilesName').textContent = n ? (n === 1 ? e.target.files[0].name : `${n} Dateien ausgewählt`) : 'Screenshots oder ZIP auswählen (mehrere möglich)';
+  $('#wSend').disabled = !n;
+});
+$('#wCat').addEventListener('change', (e) => { $('#wCatNew').hidden = e.target.value !== '__new'; if (e.target.value === '__new') $('#wCatNew').focus(); });
+$('#wCancel').addEventListener('click', () => $('#wupload').classList.remove('open'));
+$('#wupload').addEventListener('click', (e) => { if (e.target.id === 'wupload') $('#wupload').classList.remove('open'); });
+$('#wSend').addEventListener('click', async () => {
+  const files = [...$('#wFiles').files];
+  if (!files.length) return;
+  const catSel = $('#wCat').value;
+  const category = catSel === '__new' ? $('#wCatNew').value.trim() : catSel;
+  const total = files.reduce((a, f) => a + f.size, 0);
+  const bar = $('#wProg').firstElementChild;
+  $('#wProg').style.display = 'block';
+  bar.style.width = '0';
+  $('#wSend').disabled = true;
+  try {
+    const images = [];
+    const zips = [];
+    let doneBefore = 0;
+    for (const f of files) {
+      const part = await sendFile(f, (done) => { bar.style.width = ((doneBefore + done) / total * 100) + '%'; });
+      (/\.zip$/i.test(f.name) ? zips : images).push(part);
+      doneBefore += f.size;
+    }
+    let count = 0, skipped = 0;
+    if (images.length) count += (await woolPost('api/wool/upload', { images, category, title: $('#wUpTitle').value.trim() })).count;
+    if (zips.length) $('#wProg').classList.add('busy');
+    for (const zip of zips) {
+      const res = await woolPost('api/wool/import', { zip });
+      count += res.count;
+      skipped += res.skipped;
+    }
+    $('#wProg').classList.remove('busy');
+    $('#wupload').classList.remove('open');
+    toast((count === 1 ? '1 Bild hinzugefügt' : `${count} Bilder hinzugefügt`) + (skipped ? ` (${skipped} schon vorhanden)` : ''));
+    await load();
+  } catch (e) {
+    $('#wProg').classList.remove('busy');
+    toast('Hochladen fehlgeschlagen: ' + e.message);
+    $('#wSend').disabled = false;
+  }
+});
+
+setSection(section);
+load();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !$('#viewer').classList.contains('open')) load();
+});
+</script>
+</body>
+</html>
