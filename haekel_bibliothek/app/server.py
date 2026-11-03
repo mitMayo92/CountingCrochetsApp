@@ -371,6 +371,10 @@ async def api_import(request):
     if url and "://" not in url:
         url = "https://" + url
     category = safe_category(str(body.get("category", "")))
+    own_image = take_part(body["image"]) if body.get("image") else None
+    if own_image and Path(own_image[1]).suffix.lower() not in IMAGE_EXT:
+        own_image[0].unlink(missing_ok=True)
+        raise web.HTTPBadRequest(text="Bitte JPG, PNG, WebP oder HEIC als Titelbild verwenden")
     print(f"Link-Import gestartet: {url}")
     try:
         data, ctype, final = await importer.fetch(url)
@@ -393,14 +397,22 @@ async def api_import(request):
                 shutil.move(tmp, target)
             finally:
                 tmp.unlink(missing_ok=True)
-            if cover_url:
+            if cover_url and not own_image:
                 img = await asyncio.to_thread(importer.download_image, cover_url)
                 if img:
                     target.with_suffix(img[1]).write_bytes(img[0])
+        if own_image:
+            for old in [p for p in target.parent.iterdir() if p.stem == target.stem and p.suffix.lower() in IMAGE_EXT]:
+                old.unlink()
+            shutil.move(own_image[0], target.with_suffix(Path(own_image[1]).suffix.lower()))
     except importer.ImportError_ as e:
+        if own_image:
+            own_image[0].unlink(missing_ok=True)
         print(f"Link-Import abgelehnt: {e}")
         raise web.HTTPBadRequest(text=str(e))
     except Exception as e:
+        if own_image:
+            own_image[0].unlink(missing_ok=True)
         print(f"Link-Import fehlgeschlagen: {type(e).__name__}: {e}")
         raise web.HTTPBadRequest(text="Die Seite konnte nicht umgewandelt werden")
     rel = rel_of(target)
