@@ -696,7 +696,7 @@ async def api_wool_upload(request):
         meta = wool_meta()
         for i, rel in enumerate(saved):
             m = meta.setdefault(rel, {})
-            m["added"] = int(time.time()) + i
+            m["added"] = int(time.time()) - i  # erste Auswahl zuerst
             if title:
                 m["title"] = title if len(saved) == 1 else f"{title} ({i + 1})"
         save_wool_meta(meta)

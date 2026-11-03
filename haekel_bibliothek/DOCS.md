@@ -21,6 +21,11 @@ Katalog für Häkelanleitungen als PDF. Erscheint in der Home-Assistant-Seitenle
 
 Grenzen: Seiten mit Login (gekaufte Anleitungen) und Seiten, die ihren Inhalt erst per JavaScript laden, funktionieren nicht.
 
+## Woll-Katalog
+
+Oben auf **Wolle** umschalten. Mit **+** Screenshots (Preislisten, Farbkarten, Garne) hinzufügen – mehrere auf einmal, mit Titel und Shop/Kategorie. Antippen zeigt das Bild mit Notizen; **Vollbild mit Zoom** zum genauen Lesen; blättern mit Pfeilen oder Wischen.
+Die Bilder liegen in `share/wolle` (Unterordner = Shop/Kategorie) und können auch per Dateien-App abgelegt werden. Gelöschte Bilder landen in `share/wolle/.papierkorb`.
+
 ## Mehrere PDFs pro Anleitung (z. B. Deutsch und Englisch)
 
 In der Detailansicht unter **PDFs**:
