@@ -76,6 +76,17 @@ def _meta(tree, *names) -> str:
     return ""
 
 
+IMG_LINK = re.compile(r"\.(jpe?g|png|webp|gif)(\?|$)", re.I)
+
+
+def _hires(u: str) -> str:
+    """Blogger liefert verkleinerte Bilder (/s320/, =w400-h300); volle Größe anfordern."""
+    if "googleusercontent.com" in u or "bp.blogspot.com" in u:
+        u = re.sub(r"/(?:s\d+|w\d+(?:-h\d+)?)(?:-[a-z0-9-]+)?/", "/s1600/", u, count=1)
+        u = re.sub(r"=(?:s\d+|w\d+(?:-h\d+)?)(?:-[a-z0-9-]+)?$", "=s1600", u)
+    return u
+
+
 def _fix_images(tree, base: str) -> None:
     """Nachladende Bilder (WordPress & Co.) auf echte Adressen umstellen, Links absolut machen."""
     for img in tree.xpath("//img"):
@@ -88,7 +99,12 @@ def _fix_images(tree, base: str) -> None:
         if not src or src.startswith("data:"):
             img.drop_tree()  # nur Platzhalter, kein echtes Bild
             continue
-        img.set("src", urljoin(base, src))
+        # Bild verlinkt auf größere Fassung (Blogger, viele WordPress-Themes)?
+        parent = img.getparent()
+        href = parent.get("href") if parent is not None and parent.tag == "a" else None
+        if href and (IMG_LINK.search(href) or "googleusercontent.com" in href or "bp.blogspot.com" in href):
+            src = href
+        img.set("src", _hires(urljoin(base, src)))
         for a in ("srcset", "sizes", "loading", "width", "height", "style", *LAZY_ATTRS,
                   "data-lazy-srcset", "data-srcset"):
             if a in img.attrib:
@@ -112,6 +128,8 @@ def page_to_article(raw: bytes, url: str) -> dict:
     title = _meta(tree, "og:title", "twitter:title") or doc.short_title() or urlparse(url).hostname
     image = _meta(tree, "og:image", "og:image:url", "twitter:image")
     first_img = body.xpath("//img/@src")
+    print(f"Lesemodus: {len(body.text_content().strip())} Zeichen, {len(first_img)} Bilder"
+          + (f", z. B. {first_img[0][:120]}" if first_img else ""))
     return {
         "title": html.unescape(title).strip()[:150],
         "image": urljoin(url, image) if image else (first_img[0] if first_img else ""),

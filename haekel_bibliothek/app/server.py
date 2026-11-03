@@ -45,8 +45,10 @@ def library_root() -> Path:
 
 
 ROOT = library_root()
+WOOL = Path(os.environ.get("WOOL_DIR", ROOT.parent / "wolle"))
 THUMBS = DATA_DIR / "thumbs"
 META_FILE = DATA_DIR / "meta.json"
+WOOL_META = DATA_DIR / "wolle.json"
 meta_lock = asyncio.Lock()
 
 
@@ -583,8 +585,157 @@ async def api_delete(request):
     return web.json_response({"ok": True})
 
 
+# ---------- Woll-Katalog (Screenshots) ----------
+
+def wool_path(item_id: str) -> Path:
+    try:
+        rel = base64.urlsafe_b64decode(item_id + "=" * (-len(item_id) % 4)).decode()
+    except (ValueError, UnicodeDecodeError):
+        raise web.HTTPNotFound()
+    path = (WOOL / rel).resolve()
+    if WOOL.resolve() not in path.parents or not path.is_file():
+        raise web.HTTPNotFound()
+    return path
+
+
+def wool_meta() -> dict:
+    try:
+        return json.loads(WOOL_META.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def save_wool_meta(meta: dict) -> None:
+    tmp = WOOL_META.with_suffix(".tmp")
+    tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=1))
+    tmp.replace(WOOL_META)
+
+
+def list_wool() -> list[dict]:
+    meta = wool_meta()
+    out = []
+    for img in WOOL.rglob("*"):
+        if img.suffix.lower() not in IMAGE_EXT or not img.is_file():
+            continue
+        rel = img.relative_to(WOOL).as_posix()
+        if any(part.startswith(".") for part in img.relative_to(WOOL).parts):
+            continue
+        st = img.stat()
+        m = meta.get(rel, {})
+        parent = img.parent.relative_to(WOOL).as_posix()
+        out.append({
+            "id": encode_id(rel),
+            "title": m.get("title") or nice_title(img.stem),
+            "category": "" if parent == "." else parent,
+            "added": int(m.get("added") or st.st_mtime),
+            "v": int(st.st_mtime),
+            "notes": m.get("notes", ""),
+        })
+    out.sort(key=lambda i: i["added"], reverse=True)
+    return out
+
+
+@routes.get("/api/wool")
+async def api_wool(_):
+    items = await asyncio.to_thread(list_wool)
+    cats = {i["category"] for i in items if i["category"]}
+    cats |= {d.name for d in WOOL.iterdir() if d.is_dir() and not d.name.startswith(".")}
+    return web.json_response({"items": items, "categories": sorted(cats, key=str.lower)})
+
+
+@routes.get("/wool/{id}")
+async def wool_file(request):
+    resp = web.FileResponse(wool_path(request.match_info["id"]))
+    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
+
+
+@routes.get("/woolthumb/{id}")
+async def wool_thumb(request):
+    """Verkleinerte Vorschau für die Übersicht (Screenshots sind oft mehrere MB groß)."""
+    img = wool_path(request.match_info["id"])
+    st = img.stat()
+    key = hashlib.sha1(f"wool|{img}|{st.st_mtime}|{st.st_size}".encode()).hexdigest()
+    thumb = THUMBS / f"{key}.jpg"
+    if not thumb.exists() and img.suffix.lower() != ".heic":
+        def make():
+            from PIL import Image
+            with Image.open(img) as im:
+                im = im.convert("RGB")
+                im.thumbnail((700, 1400))
+                im.save(thumb, "JPEG", quality=82)
+        try:
+            await asyncio.to_thread(make)
+        except Exception as e:
+            print(f"Woll-Vorschau fehlgeschlagen für {img.name}: {e}")
+    resp = web.FileResponse(thumb if thumb.exists() else img)
+    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
+
+
+@routes.post("/api/wool/upload")
+async def api_wool_upload(request):
+    body = await request.json()
+    category = safe_category(str(body.get("category", "")))
+    folder = WOOL / category if category else WOOL
+    folder.mkdir(parents=True, exist_ok=True)
+    saved = []
+    for info in body.get("images", [])[:50]:
+        tmp, name = take_part(info)
+        ext = Path(name).suffix.lower()
+        if ext not in IMAGE_EXT:
+            tmp.unlink(missing_ok=True)
+            continue
+        target = unique_path(folder, name)
+        shutil.move(tmp, target)
+        saved.append(target.relative_to(WOOL).as_posix())
+    if not saved:
+        raise web.HTTPBadRequest(text="Keine Bilder erhalten (JPG, PNG, WebP oder HEIC)")
+    title = str(body.get("title", "")).strip()[:150]
+    async with meta_lock:
+        meta = wool_meta()
+        for i, rel in enumerate(saved):
+            m = meta.setdefault(rel, {})
+            m["added"] = int(time.time()) + i
+            if title:
+                m["title"] = title if len(saved) == 1 else f"{title} ({i + 1})"
+        save_wool_meta(meta)
+    print(f"Wolle hinzugefügt: {len(saved)} Bild(er) in {category or '(ohne Kategorie)'}")
+    return web.json_response({"ok": True, "count": len(saved)})
+
+
+@routes.post("/api/wool/meta/{id}")
+async def api_wool_meta(request):
+    rel = wool_path(request.match_info["id"]).relative_to(WOOL).as_posix()
+    body = await request.json()
+    async with meta_lock:
+        meta = wool_meta()
+        m = meta.setdefault(rel, {})
+        if "title" in body:
+            m["title"] = str(body["title"]).strip()[:150]
+        if "notes" in body:
+            m["notes"] = str(body["notes"])[:5000]
+        save_wool_meta(meta)
+    return web.json_response({"ok": True})
+
+
+@routes.delete("/api/wool/{id}")
+async def api_wool_delete(request):
+    img = wool_path(request.match_info["id"])
+    rel = img.relative_to(WOOL).as_posix()
+    trash = WOOL / TRASH
+    trash.mkdir(exist_ok=True)
+    shutil.move(img, unique_path(trash, img.name))
+    async with meta_lock:
+        meta = wool_meta()
+        meta.pop(rel, None)
+        save_wool_meta(meta)
+    return web.json_response({"ok": True})
+
+
 def main():
     ROOT.mkdir(parents=True, exist_ok=True)
+    WOOL.mkdir(parents=True, exist_ok=True)
     THUMBS.mkdir(parents=True, exist_ok=True)
     cleanup_parts()
     app = web.Application(client_max_size=200 * 1024 * 1024)
