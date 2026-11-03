@@ -17,6 +17,8 @@ from pathlib import Path
 
 from aiohttp import web
 
+import importer
+
 mimetypes.add_type("text/javascript", ".mjs")
 
 OPTIONS_FILE = Path("/data/options.json")
@@ -188,6 +190,7 @@ def list_items() -> list[dict]:
             "favorite": bool(m.get("favorite")),
             "status": m.get("status", "") if m.get("status", "") in STATUSES else "",
             "notes": m.get("notes", ""),
+            "source": m.get("source", ""),
             "hasCover": cover is not None,
             "files": fill_labels([f for f in [file_entry(rel, m.get("label", ""))]
                       + [file_entry(v["rel"], v.get("label", "")) for v in m.get("files", [])] if f]),
@@ -357,6 +360,59 @@ async def api_upload(request):
         meta.setdefault(rel, {})["added"] = int(time.time())
         save_meta(meta)
     print(f"Upload gespeichert: {rel} ({size_mb:.1f} MB)")
+    return web.json_response({"ok": True, "id": encode_id(rel)})
+
+
+@routes.post("/api/import")
+async def api_import(request):
+    """Link hinzufügen: PDF-Link herunterladen oder Webseite im Lesemodus als PDF speichern."""
+    body = await request.json()
+    url = str(body.get("url", "")).strip()
+    if url and "://" not in url:
+        url = "https://" + url
+    category = safe_category(str(body.get("category", "")))
+    print(f"Link-Import gestartet: {url}")
+    try:
+        data, ctype, final = await importer.fetch(url)
+        folder = ROOT / category if category else ROOT
+        folder.mkdir(parents=True, exist_ok=True)
+        title, cover_url = "", ""
+        if "application/pdf" in ctype or data[:1024].find(b"%PDF-") != -1:
+            name = safe_name(Path(final.split("?")[0]).name or "Anleitung")
+            if not name.lower().endswith(".pdf"):
+                name += ".pdf"
+            target = unique_path(folder, name)
+            target.write_bytes(data)
+        else:
+            article = await asyncio.to_thread(importer.page_to_article, data, final)
+            title, cover_url = article["title"], article["image"]
+            target = unique_path(folder, safe_name(re.sub(r"\s+", " ", title))[:90] + ".pdf")
+            tmp = DATA_DIR / f"import-{time.time_ns()}.pdf"
+            try:
+                await asyncio.to_thread(importer.article_to_pdf, article, final, tmp)
+                shutil.move(tmp, target)
+            finally:
+                tmp.unlink(missing_ok=True)
+            if cover_url:
+                img = await asyncio.to_thread(importer.download_image, cover_url)
+                if img:
+                    target.with_suffix(img[1]).write_bytes(img[0])
+    except importer.ImportError_ as e:
+        print(f"Link-Import abgelehnt: {e}")
+        raise web.HTTPBadRequest(text=str(e))
+    except Exception as e:
+        print(f"Link-Import fehlgeschlagen: {type(e).__name__}: {e}")
+        raise web.HTTPBadRequest(text="Die Seite konnte nicht umgewandelt werden")
+    rel = rel_of(target)
+    async with meta_lock:
+        meta = load_meta()
+        m = meta.setdefault(rel, {})
+        m["added"] = int(time.time())
+        m["source"] = url
+        if title:
+            m["title"] = title
+        save_meta(meta)
+    print(f"Link-Import gespeichert: {rel} ({target.stat().st_size / 1048576:.1f} MB)")
     return web.json_response({"ok": True, "id": encode_id(rel)})
 
 

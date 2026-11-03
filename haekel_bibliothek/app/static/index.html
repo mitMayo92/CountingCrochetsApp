@@ -204,6 +204,7 @@
   }
   .title-input:focus { border-bottom-color: var(--accent); }
   .meta { color: var(--muted); font-size: .85rem; margin-bottom: 14px; }
+  .source-link { display: inline-block; margin: -6px 0 14px; color: var(--accent); font-size: .9rem; text-decoration: none; }
   .open-row { display: flex; gap: 8px; flex-wrap: wrap; }
   .open-row .primary { flex: 1 1 120px; width: auto; }
   .files { margin-top: 6px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
@@ -264,6 +265,8 @@
   .filebox small { color: var(--muted); }
   .progress { height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; margin-top: 12px; display: none; }
   .progress div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .progress.busy div { width: 40% !important; animation: busy 1.1s ease-in-out infinite; }
+  @keyframes busy { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 
   /* PDF-Ansicht */
   .viewer {
@@ -339,6 +342,7 @@
     </div>
     <input class="title-input" id="dTitle" aria-label="Titel">
     <div class="meta" id="dMeta"></div>
+    <a class="source-link" id="dSource" target="_blank" rel="noopener noreferrer" hidden>Originalseite öffnen ↗</a>
     <div class="open-row" id="dOpen"></div>
     <div class="seg" id="dStatus">
       <button data-s="">Kein Status</button>
@@ -383,6 +387,15 @@
 <div class="overlay" id="upload">
   <div class="sheet" role="dialog" aria-modal="true">
     <h2>Neue Anleitung</h2>
+    <div class="seg" id="uMode" style="margin-top:0">
+      <button data-m="file" class="on">PDF-Datei</button>
+      <button data-m="link">Link zu einer Seite</button>
+    </div>
+    <div id="uLinkBox" hidden>
+      <input class="field" id="uUrl" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://… (Link zur Anleitung)">
+      <p class="meta" style="margin:8px 0 0">Die Seite wird im Lesemodus als PDF gespeichert – ohne Werbung und Cookie-Hinweise. Titel und Titelbild kommen von der Seite. Seiten mit Login (z. B. gekaufte Anleitungen) gehen nicht.</p>
+    </div>
+    <div id="uFileBox">
     <label class="filebox" id="uPdfBox">
       <input type="file" id="uPdf">
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
@@ -394,6 +407,7 @@
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 17-5-5-9 8"/></svg>
       <span id="uImgName">Bild auswählen</span>
     </label>
+    </div>
     <label class="lbl" for="uCat">Kategorie</label>
     <select class="field" id="uCat"></select>
     <input class="field" id="uCatNew" placeholder="Neue Kategorie" style="margin-top:8px" hidden>
@@ -636,6 +650,8 @@ function fillDetail(it) {
   const date = new Date(it.added * 1000).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
   $('#dMeta').textContent = [it.category || 'Ohne Kategorie', date, it.files.length > 1 ? `${it.files.length} PDFs` : mb + ' MB'].join(' · ');
   $('#dNotes').value = it.notes;
+  $('#dSource').hidden = !it.source;
+  if (it.source) $('#dSource').href = it.source;
   renderFiles();
   syncDetailControls();
   const idx = detailList.findIndex((i) => i.id === it.id);
@@ -900,7 +916,46 @@ function openUpload(file) {
   $('#uCatNew').value = '';
   uploadFile = file || null;
   if (file) { $('#uPdfName').textContent = file.name; $('#uSend').disabled = false; }
+  $('#uUrl').value = '';
+  setUploadMode('file');
   $('#upload').classList.add('open');
+}
+let uploadMode = 'file';
+function setUploadMode(m) {
+  uploadMode = m;
+  $('#uMode').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.m === m));
+  $('#uFileBox').hidden = m !== 'file';
+  $('#uLinkBox').hidden = m !== 'link';
+  $('#uSend').textContent = m === 'link' ? 'Hinzufügen' : 'Hochladen';
+  $('#uSend').disabled = m === 'link' ? !$('#uUrl').value.trim() : !uploadFile;
+  if (m === 'link') setTimeout(() => $('#uUrl').focus(), 50);
+}
+$('#uMode').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setUploadMode(b.dataset.m); });
+$('#uUrl').addEventListener('input', () => { $('#uSend').disabled = !$('#uUrl').value.trim(); });
+$('#uUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter' && $('#uUrl').value.trim()) $('#uSend').click(); });
+
+async function importLink(category) {
+  const url = $('#uUrl').value.trim();
+  const btn = $('#uSend');
+  btn.disabled = true;
+  btn.textContent = 'Seite wird gespeichert …';
+  const prog = $('#uProg');
+  prog.style.display = 'block';
+  prog.firstElementChild.style.width = '100%';
+  prog.classList.add('busy');
+  try {
+    await api('api/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, category }) });
+    $('#upload').classList.remove('open');
+    toast('Anleitung hinzugefügt');
+    await load();
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    prog.classList.remove('busy');
+    prog.style.display = 'none';
+    btn.textContent = 'Hinzufügen';
+    btn.disabled = false;
+  }
 }
 let uploadFile = null;
 $('#add').addEventListener('click', () => openUpload());
@@ -961,11 +1016,12 @@ async function sendFile(file, onProgress = () => {}) {
 }
 
 $('#uSend').addEventListener('click', async () => {
+  const catSel = $('#uCat').value;
+  const category = catSel === '__new' ? $('#uCatNew').value.trim() : catSel;
+  if (uploadMode === 'link') return importLink(category);
   if (!uploadFile) return;
   const file = uploadFile;
   const image = $('#uImg').files[0];
-  const catSel = $('#uCat').value;
-  const category = catSel === '__new' ? $('#uCatNew').value.trim() : catSel;
   const prog = $('#uProg');
   const bar = prog.firstElementChild;
   const total = file.size + (image ? image.size : 0);

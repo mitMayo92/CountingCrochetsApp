@@ -15,6 +15,12 @@ Katalog für Häkelanleitungen als PDF. Erscheint in der Home-Assistant-Seitenle
 - **Titel:** Kommt aus dem Dateinamen (`Hase_Hoppel.pdf` → „Hase Hoppel“) und lässt sich in der Bibliothek ändern.
 - **Löschen** verschiebt Dateien nach `share/haekeln/.papierkorb`. Dort kann man sie wiederherstellen.
 
+## Anleitungen per Link
+
+**+** → **Link zu einer Seite** → Adresse einfügen. Die Seite wird im Lesemodus (nur der Anleitungsteil, ohne Werbung, Menüs und Cookie-Hinweise) als PDF gespeichert; Titel und Titelbild kommen aus der Linkvorschau der Seite. Führt der Link direkt auf eine PDF, wird sie einfach heruntergeladen. In der Detailansicht führt „Originalseite öffnen“ zur Quelle.
+
+Grenzen: Seiten mit Login (gekaufte Anleitungen) und Seiten, die ihren Inhalt erst per JavaScript laden, funktionieren nicht.
+
 ## Mehrere PDFs pro Anleitung (z. B. Deutsch und Englisch)
 
 In der Detailansicht unter **PDFs**:
