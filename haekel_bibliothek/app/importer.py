@@ -76,6 +76,8 @@ def _meta(tree, *names) -> str:
     return ""
 
 
+JUNK_IMG = re.compile(r"printfriendly|button|icon|logo|avatar|emoji|share|pinterest|facebook|"
+                      r"twitter|whatsapp|badge|spinner|pixel|gravatar|feeds?/|widget", re.I)
 IMG_LINK = re.compile(r"\.(jpe?g|png|webp|gif)(\?|$)", re.I)
 
 
@@ -90,6 +92,15 @@ def _hires(u: str) -> str:
 def _fix_images(tree, base: str) -> None:
     """Nachladende Bilder (WordPress & Co.) auf echte Adressen umstellen, Links absolut machen."""
     for img in tree.xpath("//img"):
+        # Knöpfe, Icons, Zählpixel aussortieren
+        try:
+            w, h = int(img.get("width") or 999), int(img.get("height") or 999)
+        except ValueError:
+            w = h = 999
+        probe = " ".join(filter(None, [img.get("src"), img.get("class"), img.get("alt"), *(img.get(a) for a in LAZY_ATTRS)]))
+        if w < 100 or h < 100 or JUNK_IMG.search(probe):
+            img.drop_tree()
+            continue
         src = next((img.get(a) for a in LAZY_ATTRS if img.get(a)), None)
         srcset = img.get("data-lazy-srcset") or img.get("data-srcset") or img.get("srcset")
         if not src and srcset:
@@ -111,6 +122,15 @@ def _fix_images(tree, base: str) -> None:
                 del img.attrib[a]
     for noscript in tree.xpath("//noscript"):
         noscript.drop_tree()
+    # Abschnitte, die nur ein Bild enthalten (Blogger: <div class="separator">), würde der
+    # Lesemodus als Deko verwerfen – als Absatz markieren, damit die Fotos erhalten bleiben.
+    for img in tree.xpath("//img"):
+        node = img.getparent()
+        while node is not None and node.tag in ("a", "span", "center"):
+            node = node.getparent()
+        if node is not None and node.tag in ("div", "figure", "section") and not node.text_content().strip() \
+                and len(node.xpath(".//img")) == 1:
+            node.tag = "p"
     for a in tree.xpath("//a[@href]"):
         a.set("href", urljoin(base, a.get("href")))
 
