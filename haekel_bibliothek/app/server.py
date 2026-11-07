@@ -386,7 +386,20 @@ async def api_import_check(request):
         "img_srcs": [i.get("src") or i.get("data-src") for i in main.xpath(".//img")][:15],
         "hints": {k: raw.count(k) for k in ("youtube", "vimeo", "pdf", "drive.google", "data-src", "lazy", "{width}")},
         "links": [a.get("href") for a in main.xpath(".//a[@href]")][:40],
+        "chain": _chain(tree, request.query.get("probe", "R1")),
     })
+
+
+def _chain(tree, probe):
+    """Elternkette (Tag, id, class) des ersten Elements, das den Suchtext enthält."""
+    hits = [e for e in tree.iter() if isinstance(e.tag, str) and probe in (e.text or "")]
+    if not hits:
+        return []
+    out, node = [], hits[0]
+    while node is not None and isinstance(node.tag, str):
+        out.append(f"{node.tag}#{node.get('id', '')}.{node.get('class', '')}"[:120])
+        node = node.getparent()
+    return out
 
 
 @routes.post("/api/import")
