@@ -365,6 +365,30 @@ async def api_upload(request):
     return web.json_response({"ok": True, "id": encode_id(rel)})
 
 
+@routes.get("/api/import-check")
+async def api_import_check(request):
+    """Diagnose für den Link-Import: was liefert die Seite ohne JavaScript aus?"""
+    from lxml import html as lhtml
+    try:
+        data, ctype, final = await importer.fetch(request.query.get("url", ""))
+    except importer.ImportError_ as e:
+        raise web.HTTPBadRequest(text=str(e))
+    tree = lhtml.fromstring(data)
+    for bad in tree.xpath("//script | //style | //noscript"):
+        bad.drop_tree()
+    main = (tree.xpath("//main") or tree.xpath("//body") or [tree])[0]
+    text = re.sub(r"\s+", " ", main.text_content()).strip()
+    raw = data.decode("utf-8", "ignore")
+    return web.json_response({
+        "final_url": final, "content_type": ctype, "bytes": len(data),
+        "imgs": len(tree.xpath("//img")), "iframes": [i.get("src") for i in tree.xpath("//iframe")][:10],
+        "main_text": text[:1500],
+        "img_srcs": [i.get("src") or i.get("data-src") for i in main.xpath(".//img")][:15],
+        "hints": {k: raw.count(k) for k in ("youtube", "vimeo", "pdf", "drive.google", "data-src", "lazy", "{width}")},
+        "links": [a.get("href") for a in main.xpath(".//a[@href]")][:40],
+    })
+
+
 @routes.post("/api/import")
 async def api_import(request):
     """Link hinzufügen: PDF-Link herunterladen oder Webseite im Lesemodus als PDF speichern."""
