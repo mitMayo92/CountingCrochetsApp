@@ -162,25 +162,42 @@ def _videos_to_links(tree, base: str) -> None:
             node.getparent().replace(node, p)
 
 
-MAIN_SELECTORS = ("//main", "//article", "//*[@id='MainContent']", "//*[contains(@class,'rte')]",
-                  "//*[contains(@class,'page-content')]", "//*[contains(@class,'entry-content')]")
+MAIN_SELECTORS = ("//main", "//*[@role='main']", "//article", "//*[@id='MainContent']", "//*[@id='main-content']",
+                  "//*[contains(@class,'shopify-section')]", "//*[contains(@class,'rte')]",
+                  "//*[contains(@class,'page-content')]", "//*[contains(@class,'entry-content')]",
+                  "//*[contains(@class,'post-body')]")
+JUNK_XPATH = ("//script | //style | //nav | //header | //footer | //form | //aside | //button | //select "
+              "| //*[contains(@class,'cookie')] | //*[contains(@class,'newsletter')] "
+              "| //*[contains(@class,'share')] | //*[contains(@class,'breadcrumb')] "
+              "| //*[contains(@class,'announcement')] | //*[contains(@class,'header-group')] "
+              "| //*[contains(@class,'footer-group')] | //*[contains(@class,'header-section')] "
+              "| //*[contains(@class,'footer')] | //*[contains(@class,'drawer')] | //*[contains(@class,'modal')]")
+
+
+def _cleaned(node):
+    copy = lhtml.fromstring(lhtml.tostring(node))
+    for bad in copy.xpath(JUNK_XPATH):
+        if bad is not copy:
+            bad.drop_tree()
+    return copy
 
 
 def _main_fallback(tree):
-    """Hauptbereich der Seite ohne Menü, Kopf, Fuß, Formulare – für kurze Seiten, die der Lesemodus verwirft."""
+    """Ergiebigster Inhaltsbereich der Seite ohne Menü, Kopf, Fuß, Formulare – für Seiten,
+    die der Lesemodus verwirft (kurze Anleitungen, Seitenbaukästen wie PageFly)."""
+    cands = []
     for xp in MAIN_SELECTORS:
-        found = tree.xpath(xp)
-        if found:
-            node = max(found, key=lambda n: len(n.text_content()) + 200 * len(n.xpath(".//img")))
-            break
-    else:
-        node = tree.find("body") if tree.find("body") is not None else tree
-    node = lhtml.fromstring(lhtml.tostring(node))
-    for bad in node.xpath("//script | //style | //nav | //header | //footer | //form | //aside | //button "
-                          "| //*[contains(@class,'cookie')] | //*[contains(@class,'newsletter')] "
-                          "| //*[contains(@class,'share')] | //*[contains(@class,'breadcrumb')]"):
-        bad.drop_tree()
-    return node
+        cands += tree.xpath(xp)
+    body = tree.find("body")
+    cands.append(body if body is not None else tree)
+    score = lambda n: len(re.sub(r"\s+", " ", n.text_content())) + 300 * len(n.xpath(".//img"))
+    best = None
+    for c in cands:
+        cl = _cleaned(c)
+        sc = score(cl)
+        if best is None or sc > best[0] * 1.15:  # größere Bereiche nur bei deutlich mehr Inhalt
+            best = (sc, cl)
+    return best[1]
 
 
 def page_to_article(raw: bytes, url: str) -> dict:
