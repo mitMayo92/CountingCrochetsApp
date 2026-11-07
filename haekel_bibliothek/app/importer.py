@@ -115,6 +115,7 @@ def _fix_images(tree, base: str) -> None:
         href = parent.get("href") if parent is not None and parent.tag == "a" else None
         if href and (IMG_LINK.search(href) or "googleusercontent.com" in href or "bp.blogspot.com" in href):
             src = href
+        src = src.replace("{width}", "1200")  # Shopify: data-src="…_{width}x.jpg"
         img.set("src", _hires(urljoin(base, src)))
         for a in ("srcset", "sizes", "loading", "width", "height", "style", *LAZY_ATTRS,
                   "data-lazy-srcset", "data-srcset"):
@@ -135,16 +136,70 @@ def _fix_images(tree, base: str) -> None:
         a.set("href", urljoin(base, a.get("href")))
 
 
+VIDEO = re.compile(r"(?:youtube(?:-nocookie)?\.com/(?:embed/|watch\?v=)|youtu\.be/)([\w-]{6,})|vimeo\.com/(?:video/)?(\d+)")
+
+
+def _videos_to_links(tree, base: str) -> None:
+    """Eingebettete Videos (YouTube/Vimeo) durch Vorschaubild + Link ersetzen – PDFs können keine Videos."""
+    for node in tree.xpath("//iframe | //video | //*[@data-video-id] | //*[@data-src[contains(., 'youtu')]]"):
+        src = node.get("src") or node.get("data-src") or ""
+        if node.get("data-video-id") and "youtube" in (node.get("data-video-type") or node.get("data-type") or "youtube"):
+            src = src or f"https://www.youtube.com/embed/{node.get('data-video-id')}"
+        m = VIDEO.search(src)
+        if not m:
+            if node.tag in ("iframe", "video"):
+                node.drop_tree()
+            continue
+        if m.group(1):
+            link = f"https://www.youtube.com/watch?v={m.group(1)}"
+            thumb = f"https://img.youtube.com/vi/{m.group(1)}/hqdefault.jpg"
+        else:
+            link, thumb = f"https://vimeo.com/{m.group(2)}", None
+        img_html = '<img src="%s">' % thumb if thumb else ""
+        p = lhtml.fragment_fromstring('<p class="video">%s<a href="%s">▶ Video ansehen: %s</a></p>'
+                                      % (img_html, link, link))
+        if node.getparent() is not None:
+            node.getparent().replace(node, p)
+
+
+MAIN_SELECTORS = ("//main", "//article", "//*[@id='MainContent']", "//*[contains(@class,'rte')]",
+                  "//*[contains(@class,'page-content')]", "//*[contains(@class,'entry-content')]")
+
+
+def _main_fallback(tree):
+    """Hauptbereich der Seite ohne Menü, Kopf, Fuß, Formulare – für kurze Seiten, die der Lesemodus verwirft."""
+    for xp in MAIN_SELECTORS:
+        found = tree.xpath(xp)
+        if found:
+            node = max(found, key=lambda n: len(n.text_content()) + 200 * len(n.xpath(".//img")))
+            break
+    else:
+        node = tree.find("body") if tree.find("body") is not None else tree
+    node = lhtml.fromstring(lhtml.tostring(node))
+    for bad in node.xpath("//script | //style | //nav | //header | //footer | //form | //aside | //button "
+                          "| //*[contains(@class,'cookie')] | //*[contains(@class,'newsletter')] "
+                          "| //*[contains(@class,'share')] | //*[contains(@class,'breadcrumb')]"):
+        bad.drop_tree()
+    return node
+
+
 def page_to_article(raw: bytes, url: str) -> dict:
     """Extrahiert Titel, Titelbild und Hauptinhalt (Lesemodus)."""
     tree = lhtml.fromstring(raw)
     _fix_images(tree, url)
+    _videos_to_links(tree, url)
     cleaned = lhtml.tostring(tree, encoding="unicode")
     doc = Document(cleaned, url=url)
-    content = doc.summary(html_partial=True)
-    body = lhtml.fromstring(content)
+    body = lhtml.fromstring(doc.summary(html_partial=True))
+    rich = lambda n: len(n.text_content().strip()) + 300 * len(n.xpath("//img"))
     if len(body.text_content().strip()) < 200:
-        raise ImportError_("Auf der Seite wurde keine Anleitung gefunden (zu wenig Text)")
+        # Kurze Anleitung (z. B. vor allem Bilder/Videos): Hauptbereich der Seite nehmen, falls ergiebiger
+        alt = _main_fallback(lhtml.fromstring(cleaned))
+        if rich(alt) > rich(body):
+            body = alt
+            print("Lesemodus: kurze Seite – Hauptbereich der Seite verwendet")
+    if len(body.text_content().strip()) < 30 and not body.xpath("//img"):
+        raise ImportError_("Auf der Seite wurde keine Anleitung gefunden (kein Text und keine Bilder)")
     title = _meta(tree, "og:title", "twitter:title") or doc.short_title() or urlparse(url).hostname
     image = _meta(tree, "og:image", "og:image:url", "twitter:image")
     first_img = body.xpath("//img/@src")
@@ -172,6 +227,8 @@ figure { margin: 8pt 0; } figcaption { font-size: 8.5pt; color: #666; text-align
 table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #ccc; padding: 3pt 5pt; }
 a { color: #222; text-decoration: none; }
 iframe, video, script, form, button, input { display: none; }
+p.video { border: 1px solid #ddd; border-radius: 6pt; padding: 6pt; page-break-inside: avoid; }
+p.video img { max-height: 70mm; margin: 0 auto 4pt; } p.video a { color: #b0402a; word-break: break-all; }
 """
 
 
