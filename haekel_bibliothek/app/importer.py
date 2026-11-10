@@ -1,0 +1,289 @@
+"""Link-Import: Webseite im Lesemodus als PDF speichern oder PDF-Link herunterladen."""
+
+import asyncio
+import datetime
+import html
+import ipaddress
+import os
+import re
+import socket
+from urllib.parse import urljoin, urlparse
+from urllib.request import Request, urlopen
+
+import aiohttp
+from lxml import html as lhtml
+from readability import Document
+
+UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+      "(KHTML, like Gecko) Version/18.0 Safari/605.1.15")
+MAX_BYTES = 150 * 1024 * 1024
+LAZY_ATTRS = ("data-lazy-src", "data-src", "data-original", "data-orig-file", "data-large-file")
+
+
+class ImportError_(Exception):
+    """Fehler mit verständlicher Meldung für die Oberfläche."""
+
+
+def check_public(url: str) -> None:
+    """Nur öffentliche http(s)-Adressen zulassen (kein Zugriff aufs Heimnetz/HA intern)."""
+    parsed = urlparse(url)
+    if os.environ.get("IMPORT_ALLOW_PRIVATE") and parsed.scheme in ("http", "https"):
+        return  # nur für lokale Tests
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ImportError_("Bitte einen Link beginnend mit http:// oder https:// eingeben")
+    try:
+        infos = socket.getaddrinfo(parsed.hostname, None)
+    except socket.gaierror:
+        raise ImportError_(f"Seite nicht gefunden: {parsed.hostname}")
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            raise ImportError_("Links ins Heimnetz werden nicht importiert")
+
+
+async def fetch(url: str) -> tuple[bytes, str, str]:
+    """Lädt die Adresse; liefert Inhalt, Content-Type und endgültige URL."""
+    await asyncio.to_thread(check_public, url)
+    timeout = aiohttp.ClientTimeout(total=90)
+    headers = {"User-Agent": UA, "Accept-Language": "de-DE,de;q=0.9,en;q=0.8"}
+    try:
+        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as s:
+            async with s.get(url, allow_redirects=True) as r:
+                final = str(r.url)
+                await asyncio.to_thread(check_public, final)
+                if r.status in (401, 403):
+                    raise ImportError_("Die Seite verlangt eine Anmeldung oder blockiert den Abruf")
+                if r.status >= 400:
+                    raise ImportError_(f"Die Seite antwortet mit Fehler {r.status}")
+                data = bytearray()
+                async for chunk in r.content.iter_chunked(1 << 16):
+                    data += chunk
+                    if len(data) > MAX_BYTES:
+                        raise ImportError_("Die Datei ist zu groß")
+                return bytes(data), r.headers.get("Content-Type", ""), final
+    except aiohttp.ClientError as e:
+        raise ImportError_(f"Seite konnte nicht geladen werden ({type(e).__name__})")
+    except asyncio.TimeoutError:
+        raise ImportError_("Die Seite hat zu lange nicht geantwortet")
+
+
+def _meta(tree, *names) -> str:
+    for n in names:
+        for attr in ("property", "name"):
+            v = tree.xpath(f'//meta[@{attr}="{n}"]/@content')
+            if v and v[0].strip():
+                return v[0].strip()
+    return ""
+
+
+JUNK_IMG = re.compile(r"printfriendly|button|icon|logo|avatar|emoji|share|pinterest|facebook|"
+                      r"twitter|whatsapp|badge|spinner|pixel|gravatar|feeds?/|widget", re.I)
+IMG_LINK = re.compile(r"\.(jpe?g|png|webp|gif)(\?|$)", re.I)
+
+
+def _hires(u: str) -> str:
+    """Blogger liefert verkleinerte Bilder (/s320/, =w400-h300); volle Größe anfordern."""
+    if "googleusercontent.com" in u or "bp.blogspot.com" in u:
+        u = re.sub(r"/(?:s\d+|w\d+(?:-h\d+)?)(?:-[a-z0-9-]+)?/", "/s1600/", u, count=1)
+        u = re.sub(r"=(?:s\d+|w\d+(?:-h\d+)?)(?:-[a-z0-9-]+)?$", "=s1600", u)
+    return u
+
+
+def _fix_images(tree, base: str) -> None:
+    """Nachladende Bilder (WordPress & Co.) auf echte Adressen umstellen, Links absolut machen."""
+    for img in tree.xpath("//img"):
+        # Knöpfe, Icons, Zählpixel aussortieren
+        try:
+            w, h = int(img.get("width") or 999), int(img.get("height") or 999)
+        except ValueError:
+            w = h = 999
+        probe = " ".join(filter(None, [img.get("src"), img.get("class"), img.get("alt"), *(img.get(a) for a in LAZY_ATTRS)]))
+        if w < 100 or h < 100 or JUNK_IMG.search(probe):
+            img.drop_tree()
+            continue
+        src = next((img.get(a) for a in LAZY_ATTRS if img.get(a)), None)
+        srcset = img.get("data-lazy-srcset") or img.get("data-srcset") or img.get("srcset")
+        if not src and srcset:
+            src = srcset.split(",")[-1].strip().split(" ")[0]  # größte Variante
+        if not src:
+            src = img.get("src")
+        if not src or src.startswith("data:"):
+            img.drop_tree()  # nur Platzhalter, kein echtes Bild
+            continue
+        # Bild verlinkt auf größere Fassung (Blogger, viele WordPress-Themes)?
+        parent = img.getparent()
+        href = parent.get("href") if parent is not None and parent.tag == "a" else None
+        if href and (IMG_LINK.search(href) or "googleusercontent.com" in href or "bp.blogspot.com" in href):
+            src = href
+        src = src.replace("{width}", "1200")  # Shopify: data-src="…_{width}x.jpg"
+        img.set("src", _hires(urljoin(base, src)))
+        for a in ("srcset", "sizes", "loading", "width", "height", "style", *LAZY_ATTRS,
+                  "data-lazy-srcset", "data-srcset"):
+            if a in img.attrib:
+                del img.attrib[a]
+    for noscript in tree.xpath("//noscript"):
+        noscript.drop_tree()
+    # Abschnitte, die nur ein Bild enthalten (Blogger: <div class="separator">), würde der
+    # Lesemodus als Deko verwerfen – als Absatz markieren, damit die Fotos erhalten bleiben.
+    for img in tree.xpath("//img"):
+        node = img.getparent()
+        while node is not None and node.tag in ("a", "span", "center"):
+            node = node.getparent()
+        if node is not None and node.tag in ("div", "figure", "section") and not node.text_content().strip() \
+                and len(node.xpath(".//img")) == 1:
+            node.tag = "p"
+    for a in tree.xpath("//a[@href]"):
+        a.set("href", urljoin(base, a.get("href")))
+
+
+VIDEO = re.compile(r"(?:youtube(?:-nocookie)?\.com/(?:embed/|watch\?v=)|youtu\.be/)([\w-]{6,})|vimeo\.com/(?:video/)?(\d+)")
+
+
+def _videos_to_links(tree, base: str) -> None:
+    """Eingebettete Videos (YouTube/Vimeo) durch Vorschaubild + Link ersetzen – PDFs können keine Videos."""
+    for node in tree.xpath("//iframe | //video | //*[@data-video-id] | //*[@data-src[contains(., 'youtu')]]"):
+        src = node.get("src") or node.get("data-src") or ""
+        if node.get("data-video-id") and "youtube" in (node.get("data-video-type") or node.get("data-type") or "youtube"):
+            src = src or f"https://www.youtube.com/embed/{node.get('data-video-id')}"
+        m = VIDEO.search(src)
+        if not m:
+            if node.tag in ("iframe", "video"):
+                node.drop_tree()
+            continue
+        if m.group(1):
+            link = f"https://www.youtube.com/watch?v={m.group(1)}"
+            thumb = f"https://img.youtube.com/vi/{m.group(1)}/hqdefault.jpg"
+        else:
+            link, thumb = f"https://vimeo.com/{m.group(2)}", None
+        img_html = '<img src="%s">' % thumb if thumb else ""
+        p = lhtml.fragment_fromstring('<p class="video">%s<a href="%s">▶ Video ansehen: %s</a></p>'
+                                      % (img_html, link, link))
+        if node.getparent() is not None:
+            node.getparent().replace(node, p)
+
+
+MAIN_SELECTORS = ("//main", "//*[@role='main']", "//article", "//*[@id='MainContent']", "//*[@id='main-content']",
+                  "//*[contains(@class,'shopify-section')]", "//*[contains(@class,'rte')]",
+                  "//*[contains(@class,'page-content')]", "//*[contains(@class,'entry-content')]",
+                  "//*[contains(@class,'post-body')]")
+JUNK_XPATH = ("//script | //style | //nav | //header | //footer | //form | //aside | //button | //select "
+              "| //*[contains(@class,'cookie')] | //*[contains(@class,'newsletter')] "
+              "| //*[contains(@class,'share')] | //*[contains(@class,'breadcrumb')] "
+              "| //*[contains(@class,'announcement')] | //*[contains(@class,'header-group')] "
+              "| //*[contains(@class,'footer-group')] | //*[contains(@class,'header-section')] "
+              "| //*[contains(@class,'footer')] | //*[contains(@class,'drawer')] | //*[contains(@class,'modal')]")
+
+
+def _cleaned(node):
+    copy = lhtml.fromstring(lhtml.tostring(node))
+    for bad in copy.xpath(JUNK_XPATH):
+        if bad is not copy:
+            bad.drop_tree()
+    return copy
+
+
+def _main_fallback(tree):
+    """Ergiebigster Inhaltsbereich der Seite ohne Menü, Kopf, Fuß, Formulare – für Seiten,
+    die der Lesemodus verwirft (kurze Anleitungen, Seitenbaukästen wie PageFly)."""
+    cands = []
+    for xp in MAIN_SELECTORS:
+        cands += tree.xpath(xp)
+    body = tree.find("body")
+    cands.append(body if body is not None else tree)
+    score = lambda n: len(re.sub(r"\s+", " ", n.text_content())) + 300 * len(n.xpath(".//img"))
+    best = None
+    for c in cands:
+        cl = _cleaned(c)
+        sc = score(cl)
+        if best is None or sc > best[0] * 1.15:  # größere Bereiche nur bei deutlich mehr Inhalt
+            best = (sc, cl)
+    return best[1]
+
+
+def page_to_article(raw: bytes, url: str) -> dict:
+    """Extrahiert Titel, Titelbild und Hauptinhalt (Lesemodus)."""
+    tree = lhtml.fromstring(raw)
+    _fix_images(tree, url)
+    _videos_to_links(tree, url)
+    cleaned = lhtml.tostring(tree, encoding="unicode")
+    doc = Document(cleaned, url=url)
+    body = lhtml.fromstring(doc.summary(html_partial=True))
+    rich = lambda n: len(n.text_content().strip()) + 300 * len(n.xpath("//img"))
+    if len(body.text_content().strip()) < 200:
+        # Kurze Anleitung (z. B. vor allem Bilder/Videos): Hauptbereich der Seite nehmen, falls ergiebiger
+        alt = _main_fallback(lhtml.fromstring(cleaned))
+        if rich(alt) > rich(body):
+            body = alt
+            print("Lesemodus: kurze Seite – Hauptbereich der Seite verwendet")
+    if len(body.text_content().strip()) < 30 and not body.xpath("//img"):
+        raise ImportError_("Auf der Seite wurde keine Anleitung gefunden (kein Text und keine Bilder)")
+    title = _meta(tree, "og:title", "twitter:title") or doc.short_title() or urlparse(url).hostname
+    image = _meta(tree, "og:image", "og:image:url", "twitter:image")
+    first_img = body.xpath("//img/@src")
+    print(f"Lesemodus: {len(body.text_content().strip())} Zeichen, {len(first_img)} Bilder"
+          + (f", z. B. {first_img[0][:120]}" if first_img else ""))
+    return {
+        "title": html.unescape(title).strip()[:150],
+        "image": urljoin(url, image) if image else (first_img[0] if first_img else ""),
+        "content": lhtml.tostring(body, encoding="unicode"),
+        "site": _meta(tree, "og:site_name") or urlparse(url).hostname,
+    }
+
+
+PDF_CSS = """
+@page { size: A4; margin: 18mm 16mm 20mm;
+  @bottom-center { content: counter(page) " / " counter(pages); font-size: 8pt; color: #888; } }
+body { font-family: "Noto Sans", "DejaVu Sans", sans-serif; font-size: 10.5pt; line-height: 1.5; color: #222; }
+h1.doc-title { font-size: 20pt; line-height: 1.2; margin: 0 0 4pt; }
+.source { font-size: 8.5pt; color: #777; margin-bottom: 14pt; border-bottom: 1px solid #ddd; padding-bottom: 8pt; }
+.source a { color: #777; }
+h1, h2, h3, h4 { line-height: 1.25; page-break-after: avoid; }
+h2 { font-size: 14pt; } h3 { font-size: 12pt; }
+img { max-width: 100%; max-height: 120mm; height: auto; display: block; margin: 6pt auto; page-break-inside: avoid; }
+figure { margin: 8pt 0; } figcaption { font-size: 8.5pt; color: #666; text-align: center; }
+table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #ccc; padding: 3pt 5pt; }
+a { color: #222; text-decoration: none; }
+iframe, video, script, form, button, input { display: none; }
+p.video { border: 1px solid #ddd; border-radius: 6pt; padding: 6pt; page-break-inside: avoid; }
+p.video img { max-height: 70mm; margin: 0 auto 4pt; } p.video a { color: #b0402a; word-break: break-all; }
+"""
+
+
+def article_to_pdf(article: dict, url: str, target) -> None:
+    from weasyprint import HTML, URLFetcher
+
+    class SafeFetcher(URLFetcher):
+        """Lädt Bilder nur von öffentlichen Adressen."""
+        def fetch(self, u, headers=None):
+            if u.startswith(("http://", "https://")):
+                check_public(u)
+            return super().fetch(u, headers)
+
+    fetcher = SafeFetcher(timeout=20, http_headers={"User-Agent": UA},
+                          allowed_protocols=("http", "https", "data"))
+
+    today = datetime.date.today().strftime("%d.%m.%Y")
+    doc = f"""<!doctype html><html lang="de"><head><meta charset="utf-8"><style>{PDF_CSS}</style></head><body>
+<h1 class="doc-title">{html.escape(article['title'])}</h1>
+<div class="source">{html.escape(article['site'] or '')} · <a href="{html.escape(url)}">{html.escape(url)}</a> · gespeichert am {today}</div>
+{article['content']}
+</body></html>"""
+    HTML(string=doc, base_url=url, url_fetcher=fetcher).write_pdf(str(target))
+
+
+def download_image(url: str, limit: int = 15 * 1024 * 1024) -> tuple[bytes, str] | None:
+    """Titelbild laden; liefert (Daten, Endung) oder None."""
+    try:
+        check_public(url)
+        with urlopen(Request(url, headers={"User-Agent": UA}), timeout=20) as r:
+            ctype = r.headers.get("Content-Type", "")
+            data = r.read(limit + 1)
+    except Exception:
+        return None
+    if len(data) > limit:
+        return None
+    ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(ctype.split(";")[0].strip())
+    if not ext:
+        m = re.search(r"\.(jpe?g|png|webp)(\?|$)", url, re.I)
+        ext = "." + m.group(1).lower().replace("jpeg", "jpg") if m else None
+    return (data, ext) if ext else None
