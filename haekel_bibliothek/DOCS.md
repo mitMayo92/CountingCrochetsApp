@@ -21,6 +21,10 @@ Katalog für Häkelanleitungen als PDF. Erscheint in der Home-Assistant-Seitenle
 
 Grenzen: Seiten mit Login (gekaufte Anleitungen) und Seiten, die ihren Inhalt erst per JavaScript laden, funktionieren nicht.
 
+## Videos
+
+Oben auf **Videos** umschalten → **+** → YouTube-Link einfügen (auch `youtu.be/…` und Shorts; geteilter Text mit Link geht ebenfalls). Titel, Kanal und Vorschaubild kommen automatisch von YouTube. In der Detailansicht öffnet **„▶ Auf YouTube öffnen“** das Video; dazu Kategorie und Notizen (z. B. Zeitmarken). Die Videoliste liegt in den Add-on-Daten (`/data/videos.json`) und ist damit Teil der Home-Assistant-Backups.
+
 ## Woll-Katalog
 
 Oben auf **Wolle** umschalten. Mit **+** Screenshots (Preislisten, Farbkarten, Garne) hinzufügen – mehrere auf einmal, mit Titel und Shop/Kategorie. Antippen zeigt das Bild mit Notizen; **Vollbild mit Zoom** zum genauen Lesen; blättern mit Pfeilen oder Wischen.

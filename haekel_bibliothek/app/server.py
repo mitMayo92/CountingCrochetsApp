@@ -49,6 +49,10 @@ WOOL = Path(os.environ.get("WOOL_DIR", ROOT.parent / "wolle"))
 THUMBS = DATA_DIR / "thumbs"
 META_FILE = DATA_DIR / "meta.json"
 WOOL_META = DATA_DIR / "wolle.json"
+VIDEOS_FILE = DATA_DIR / "videos.json"
+VTHUMBS = DATA_DIR / "videothumbs"
+YT_BASE = os.environ.get("YT_BASE", "https://www.youtube.com")        # nur für Tests umstellbar
+YT_IMG_BASE = os.environ.get("YT_IMG_BASE", "https://img.youtube.com")
 meta_lock = asyncio.Lock()
 
 
@@ -821,6 +825,121 @@ async def api_wool_delete(request):
         meta = wool_meta()
         meta.pop(rel, None)
         save_wool_meta(meta)
+    return web.json_response({"ok": True})
+
+
+# ---------- Videos (YouTube-Links) ----------
+
+YT_ID = re.compile(r"(?:youtube(?:-nocookie)?\.com/(?:watch\?(?:[^#]*&)?v=|embed/|shorts/|live/|v/)|youtu\.be/)([\w-]{11})")
+
+
+def load_videos() -> dict:
+    try:
+        return json.loads(VIDEOS_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def save_videos(videos: dict) -> None:
+    tmp = VIDEOS_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(videos, ensure_ascii=False, indent=1))
+    tmp.replace(VIDEOS_FILE)
+
+
+def video_or_404(vid: str) -> dict:
+    v = load_videos().get(vid)
+    if not v:
+        raise web.HTTPNotFound()
+    return v
+
+
+@routes.get("/api/videos")
+async def api_videos(_):
+    videos = load_videos()
+    items = sorted(({"id": k, **v} for k, v in videos.items()), key=lambda i: i.get("added", 0), reverse=True)
+    cats = sorted({i.get("category", "") for i in items if i.get("category")}, key=str.lower)
+    return web.json_response({"items": items, "categories": cats})
+
+
+@routes.post("/api/videos")
+async def api_videos_add(request):
+    body = await request.json()
+    url = str(body.get("url", "")).strip()
+    m = YT_ID.search(url)
+    if not m:
+        raise web.HTTPBadRequest(text="Das ist kein YouTube-Link (youtube.com/watch?v=… oder youtu.be/…)")
+    vid = m.group(1)
+    if vid in load_videos():
+        raise web.HTTPBadRequest(text="Dieses Video ist schon in der Bibliothek")
+    watch = f"https://www.youtube.com/watch?v={vid}"
+    title, channel = "", ""
+    try:
+        from urllib.parse import quote
+        data, _, _ = await importer.fetch(f"{YT_BASE}/oembed?format=json&url={quote(watch, safe='')}")
+        info = json.loads(data)
+        title, channel = info.get("title", ""), info.get("author_name", "")
+    except (importer.ImportError_, ValueError) as e:
+        print(f"Video-Infos nicht abrufbar ({vid}): {e}")
+    VTHUMBS.mkdir(parents=True, exist_ok=True)
+    for name in ("maxresdefault", "hqdefault"):
+        try:
+            img, ctype, _ = await importer.fetch(f"{YT_IMG_BASE}/vi/{vid}/{name}.jpg")
+            if "image" in ctype and len(img) > 2000:  # maxres fehlt bei manchen Videos (Platzhalterbild)
+                (VTHUMBS / f"{vid}.jpg").write_bytes(img)
+                break
+        except importer.ImportError_:
+            continue
+    async with meta_lock:
+        videos = load_videos()
+        videos[vid] = {
+            "url": watch, "title": title or f"YouTube-Video {vid}", "channel": channel,
+            "category": safe_category(str(body.get("category", ""))), "notes": "", "added": int(time.time()),
+        }
+        save_videos(videos)
+    print(f"Video hinzugefügt: {title or vid}")
+    return web.json_response({"ok": True, "id": vid})
+
+
+@routes.get("/vthumb/{id}")
+async def video_thumb(request):
+    vid = request.match_info["id"]
+    video_or_404(vid)
+    path = VTHUMBS / f"{vid}.jpg"
+    if not path.exists():
+        raise web.HTTPNotFound()
+    resp = web.FileResponse(path)
+    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
+
+
+@routes.post("/api/videos/meta/{id}")
+async def api_videos_meta(request):
+    vid = request.match_info["id"]
+    body = await request.json()
+    async with meta_lock:
+        videos = load_videos()
+        v = videos.get(vid)
+        if not v:
+            raise web.HTTPNotFound()
+        if "title" in body and str(body["title"]).strip():
+            v["title"] = str(body["title"]).strip()[:200]
+        if "notes" in body:
+            v["notes"] = str(body["notes"])[:5000]
+        if "category" in body:
+            v["category"] = safe_category(str(body["category"]))
+        save_videos(videos)
+    return web.json_response({"ok": True})
+
+
+@routes.delete("/api/videos/{id}")
+async def api_videos_delete(request):
+    vid = request.match_info["id"]
+    async with meta_lock:
+        videos = load_videos()
+        if videos.pop(vid, None) is None:
+            raise web.HTTPNotFound()
+        save_videos(videos)
+    (VTHUMBS / f"{vid}.jpg").unlink(missing_ok=True)
     return web.json_response({"ok": True})
 
 

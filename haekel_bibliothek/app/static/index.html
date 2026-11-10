@@ -210,6 +210,13 @@
   .tabs button { border: 0; background: none; padding: 7px 16px; border-radius: 10px; font-weight: 600; color: var(--muted); transition: background .2s, color .2s; }
   .tabs button.on { background: var(--accent); color: var(--on-accent); }
   .card.wool .thumb { aspect-ratio: 1 / 1; }
+  .card.video .thumb { aspect-ratio: 16 / 9; }
+  .card.video .thumb img.main { object-fit: cover; }
+  .play { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; pointer-events: none; }
+  .play span { width: 46px; height: 46px; border-radius: 50%; background: rgba(0,0,0,.55); display: grid; place-items: center; }
+  .play span::after { content: ""; margin-left: 4px; border-style: solid; border-width: 9px 0 9px 15px; border-color: transparent transparent transparent #fff; }
+  .video-img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 14px; background: var(--accent-soft); display: block; }
+  a.primary { display: block; text-align: center; text-decoration: none; box-sizing: border-box; }
   .wool-img { width: 100%; max-height: 52vh; object-fit: contain; border-radius: 14px; background: var(--accent-soft); display: block; cursor: zoom-in; }
   .viewer img.wimg { display: block; margin: 0 auto; max-width: none; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.25); }
   .open-row { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -321,6 +328,7 @@
   </div>
   <div class="row"><div class="tabs" id="tabs" role="tablist">
     <button data-t="patterns" role="tab">Anleitungen</button>
+    <button data-t="videos" role="tab">Videos</button>
     <button data-t="wool" role="tab">Wolle</button>
   </div></div>
   <div class="row">
@@ -376,6 +384,48 @@
     </div>
     <input type="file" id="dCoverFile" accept="image/*" hidden>
     <div class="save-bar"><button class="save-btn" id="dSave">Speichern</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- Videos: Detail -->
+<div class="overlay" id="vdetail">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <div class="dbody" id="vdBody">
+    <div class="cover-wrap" id="vdCoverWrap">
+      <img class="video-img" id="vdImg" alt="">
+      <div class="play"><span></span></div>
+      <button class="dnav" id="vdPrev" aria-label="Vorheriges Video">‹</button>
+      <button class="dnav" id="vdNext" aria-label="Nächstes Video">›</button>
+      <span class="dpos" id="vdPos"></span>
+    </div>
+    <input class="title-input" id="vdTitle" aria-label="Titel">
+    <div class="meta" id="vdMeta"></div>
+    <a class="primary" id="vdOpen" target="_blank" rel="noopener noreferrer">▶ Auf YouTube öffnen</a>
+    <label class="lbl" for="vdCat">Kategorie</label>
+    <select class="field" id="vdCat"></select>
+    <input class="field" id="vdCatNew" placeholder="Neue Kategorie" style="margin-top:8px" hidden>
+    <label class="lbl" for="vdNotes">Notizen</label>
+    <textarea id="vdNotes" placeholder="z. B. ab 4:30 die Tentakel, Garn, Nadelstärke …"></textarea>
+    <div class="actions"><button class="ghost danger" id="vdDelete">Löschen</button></div>
+    <div class="save-bar"><button class="save-btn" id="vdSave">Speichern</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- Videos: Hinzufügen -->
+<div class="overlay" id="vupload">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <h2>Video hinzufügen</h2>
+    <input class="field" id="vuUrl" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://www.youtube.com/watch?v=…">
+    <p class="meta" style="margin:8px 0 0">Titel, Kanal und Vorschaubild werden automatisch von YouTube übernommen.</p>
+    <label class="lbl" for="vuCat">Kategorie</label>
+    <select class="field" id="vuCat"></select>
+    <input class="field" id="vuCatNew" placeholder="Neue Kategorie" style="margin-top:8px" hidden>
+    <div class="progress" id="vuProg"><div></div></div>
+    <div class="actions">
+      <button class="ghost" id="vuCancel">Abbrechen</button>
+      <button class="primary" id="vuSend" style="flex:2" disabled>Hinzufügen</button>
     </div>
   </div>
 </div>
@@ -589,10 +639,16 @@ let section = store.get('section', 'patterns');
 let wool = [];
 let woolCats = [];
 let woolFilter = store.get('woolFilter', 'all');
+let videos = [];
+let videoCats = [];
+let videoFilter = store.get('videoFilter', 'all');
 
 async function load() {
   try {
-    const [data, w] = await Promise.all([api('api/items'), api('api/wool').catch(() => ({ items: [], categories: [] }))]);
+    const none = () => ({ items: [], categories: [] });
+    const [data, w, v] = await Promise.all([api('api/items'), api('api/wool').catch(none), api('api/videos').catch(none)]);
+    videos = v.items;
+    videoCats = v.categories;
     items = data.items;
     categories = data.categories;
     wool = w.items;
@@ -632,7 +688,7 @@ function setSection(s) {
   section = s;
   store.set('section', s);
   $('#tabs').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.t === s));
-  $('#add').setAttribute('aria-label', s === 'wool' ? 'Wolle hinzufügen' : 'Anleitung hinzufügen');
+  $('#add').setAttribute('aria-label', s === 'wool' ? 'Wolle hinzufügen' : s === 'videos' ? 'Video hinzufügen' : 'Anleitung hinzufügen');
   render();
   scrollTo({ top: 0 });
 }
@@ -678,9 +734,48 @@ function renderWool() {
     : '<b>Noch keine Wolle hinterlegt.</b><br>Tippe auf <b>+</b>, um Screenshots von Garnen, Preislisten oder Farbkarten hinzuzufügen – oder lege Bilder per Dateien-App in den Ordner <code>share/wolle</code>. Unterordner werden zu Shops/Kategorien.';
 }
 
+function visibleVideos() {
+  const q = $('#q').value.trim().toLowerCase();
+  let list = videos.filter((i) => {
+    if (videoFilter.startsWith('cat:') && i.category !== videoFilter.slice(4)) return false;
+    if (q && !(i.title + ' ' + i.channel + ' ' + i.category + ' ' + i.notes).toLowerCase().includes(q)) return false;
+    return true;
+  });
+  if (sort === 'az') list = [...list].sort((a, b) => a.title.localeCompare(b.title, 'de'));
+  return list;
+}
+
+function renderVideos() {
+  const chips = [['all', 'Alle'], ...videoCats.map((c) => ['cat:' + c, c])];
+  if (!chips.some(([k]) => k === videoFilter)) videoFilter = 'all';
+  $('#chips').innerHTML = chips.map(([k, l]) => `<button class="chip${k === videoFilter ? ' on' : ''}" data-k="${esc(k)}">${esc(l)}</button>`).join('');
+  const list = visibleVideos();
+  $('#count').textContent = videos.length === 1 ? '1 Video' : `${videos.length} Videos`;
+  const grid = $('#grid');
+  grid.innerHTML = '';
+  list.forEach((it, i) => {
+    const el = document.createElement('button');
+    el.className = 'card video';
+    el.dataset.video = it.id;
+    el.style.setProperty('--i', Math.min(i, 16));
+    el.innerHTML = `
+      <div class="thumb">${placeholder}<img class="main" loading="lazy" decoding="async" alt="" src="vthumb/${it.id}"><div class="play"><span></span></div></div>
+      <div class="cap"><span class="t">${esc(it.title)}</span><span class="c">${esc([it.channel, it.category].filter(Boolean).join(' · '))}</span></div>`;
+    const img = el.querySelector('img');
+    img.onload = () => img.classList.add('loaded');
+    img.onerror = () => img.remove();
+    grid.appendChild(el);
+  });
+  const empty = $('#empty');
+  empty.hidden = list.length > 0;
+  empty.innerHTML = videos.length ? 'Nichts gefunden.'
+    : '<b>Noch keine Videos.</b><br>Tippe auf <b>+</b> und füge einen YouTube-Link ein – Titel und Vorschaubild kommen automatisch.';
+}
+
 function render() {
   $('#tabs').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.t === section));
   if (section === 'wool') return renderWool();
+  if (section === 'videos') return renderVideos();
   renderChips();
   const list = visible();
   $('#count').textContent = items.length === 1 ? '1 Anleitung' : `${items.length} Anleitungen`;
@@ -716,6 +811,7 @@ $('#chips').addEventListener('click', (e) => {
   const b = e.target.closest('.chip');
   if (!b) return;
   if (section === 'wool') { woolFilter = b.dataset.k; store.set('woolFilter', woolFilter); }
+  else if (section === 'videos') { videoFilter = b.dataset.k; store.set('videoFilter', videoFilter); }
   else { filter = b.dataset.k; store.set('filter', filter); }
   render();
 });
@@ -736,6 +832,7 @@ $('#grid').addEventListener('click', (e) => {
   const card = e.target.closest('.card');
   if (!card) return;
   if (card.dataset.wool) return openWool(wool.find((i) => i.id === card.dataset.wool));
+  if (card.dataset.video) return openVideo(videos.find((i) => i.id === card.dataset.video));
   const it = items.find((i) => i.id === card.dataset.id);
   const img = card.querySelector('img');
   if (img) img.style.viewTransitionName = 'cover';
@@ -1075,7 +1172,7 @@ async function importLink(category) {
   }
 }
 let uploadFile = null;
-$('#add').addEventListener('click', () => (section === 'wool' ? openWoolUpload() : openUpload()));
+$('#add').addEventListener('click', () => (section === 'wool' ? openWoolUpload() : section === 'videos' ? openVideoUpload() : openUpload()));
 $('#uCancel').addEventListener('click', () => $('#upload').classList.remove('open'));
 $('#upload').addEventListener('click', (e) => { if (e.target.id === 'upload') $('#upload').classList.remove('open'); });
 $('#uPdf').addEventListener('change', (e) => {
@@ -1313,6 +1410,11 @@ addEventListener('keydown', (e) => {
     stepDetail(e.key === 'ArrowRight' ? 1 : -1);
     return;
   }
+  if (!typing && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && $('#vdetail').classList.contains('open')) {
+    e.preventDefault();
+    stepVideo(e.key === 'ArrowRight' ? 1 : -1);
+    return;
+  }
   if (!typing && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && $('#wdetail').classList.contains('open') && !$('#viewer').classList.contains('open')) {
     e.preventDefault();
     stepWool(e.key === 'ArrowRight' ? 1 : -1);
@@ -1320,6 +1422,8 @@ addEventListener('keydown', (e) => {
   }
   if (e.key !== 'Escape') return;
   if ($('#viewer').classList.contains('open')) history.back();
+  else if ($('#vupload').classList.contains('open')) $('#vupload').classList.remove('open');
+  else if ($('#vdetail').classList.contains('open')) closeVideo();
   else if ($('#wupload').classList.contains('open')) $('#wupload').classList.remove('open');
   else if ($('#wdetail').classList.contains('open')) closeWool();
   else if ($('#merge').classList.contains('open')) $('#merge').classList.remove('open');
@@ -1341,6 +1445,142 @@ function closeViewer() {
     doc = null;
   }, 400);
 }
+
+// ---------- Videos ----------
+let vCurrent = null;
+let vList = [];
+function catOptions(sel, cats, preset, newLabel) {
+  sel.innerHTML = '<option value="">Ohne Kategorie</option>' +
+    cats.map((c) => `<option${c === preset ? ' selected' : ''}>${esc(c)}</option>`).join('') +
+    `<option value="__new">${newLabel}</option>`;
+}
+function openVideo(it) {
+  vList = visibleVideos();
+  fillVideo(it);
+  $('#vdetail').classList.add('open');
+}
+function fillVideo(it) {
+  vCurrent = it;
+  $('#vdImg').src = `vthumb/${it.id}`;
+  $('#vdTitle').value = it.title;
+  const date = new Date(it.added * 1000).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
+  $('#vdMeta').textContent = [it.channel, date].filter(Boolean).join(' · ');
+  $('#vdOpen').href = it.url;
+  catOptions($('#vdCat'), videoCats, it.category, '+ Neue Kategorie …');
+  $('#vdCatNew').hidden = true;
+  $('#vdCatNew').value = '';
+  $('#vdNotes').value = it.notes;
+  const idx = vList.findIndex((i) => i.id === it.id);
+  $('#vdPrev').disabled = idx <= 0;
+  $('#vdNext').disabled = idx < 0 || idx >= vList.length - 1;
+  $('#vdPos').textContent = idx >= 0 && vList.length > 1 ? `${idx + 1} / ${vList.length}` : '';
+  $('#vdPos').hidden = !$('#vdPos').textContent;
+}
+async function saveVideo() {
+  if (!vCurrent) return true;
+  const patch = {};
+  const t = $('#vdTitle').value.trim();
+  if (t && t !== vCurrent.title) patch.title = t;
+  if ($('#vdNotes').value !== vCurrent.notes) patch.notes = $('#vdNotes').value;
+  const sel = $('#vdCat').value;
+  const cat = sel === '__new' ? $('#vdCatNew').value.trim() : sel;
+  if (!(sel === '__new' && !cat) && cat !== (vCurrent.category || '')) patch.category = cat;
+  if (!Object.keys(patch).length) return true;
+  try {
+    await woolPost('api/videos/meta/' + vCurrent.id, patch);
+    Object.assign(vCurrent, patch);
+    if (patch.category && !videoCats.includes(patch.category)) videoCats = [...videoCats, patch.category].sort((a, b) => a.localeCompare(b, 'de'));
+    return true;
+  } catch {
+    toast('Speichern fehlgeschlagen');
+    return false;
+  }
+}
+async function stepVideo(dir) {
+  const idx = vList.findIndex((i) => i.id === vCurrent?.id);
+  const next = vList[idx + dir];
+  if (!next) return;
+  await saveVideo();
+  const body = $('#vdBody');
+  body.className = 'dbody';
+  void body.offsetWidth;
+  fillVideo(next);
+  body.classList.add(dir > 0 ? 'in-left' : 'in-right');
+}
+async function closeVideo() {
+  await saveVideo();
+  $('#vdetail').classList.remove('open');
+  render();
+}
+$('#vdPrev').addEventListener('click', (e) => { e.stopPropagation(); stepVideo(-1); });
+$('#vdNext').addEventListener('click', (e) => { e.stopPropagation(); stepVideo(1); });
+$('#vdImg').addEventListener('click', () => $('#vdOpen').click());
+{
+  let sx = 0, sy = 0;
+  const wrap = $('#vdCoverWrap');
+  wrap.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+  wrap.addEventListener('touchend', (e) => {
+    const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) stepVideo(dx < 0 ? 1 : -1);
+  }, { passive: true });
+}
+$('#vdCat').addEventListener('change', (e) => { $('#vdCatNew').hidden = e.target.value !== '__new'; if (e.target.value === '__new') $('#vdCatNew').focus(); });
+$('#vdetail').addEventListener('click', (e) => { if (e.target.id === 'vdetail') closeVideo(); });
+$('#vdSave').addEventListener('click', async () => {
+  if (await saveVideo()) { $('#vdetail').classList.remove('open'); render(); toast('Gespeichert'); }
+});
+$('#vdDelete').addEventListener('click', async () => {
+  if (!confirm(`„${vCurrent.title}“ aus der Bibliothek entfernen?`)) return;
+  try {
+    await api('api/videos/' + vCurrent.id, { method: 'DELETE' });
+    videos = videos.filter((i) => i.id !== vCurrent.id);
+    vCurrent = null;
+    $('#vdetail').classList.remove('open');
+    render();
+    toast('Entfernt');
+  } catch (e) { toast(e.message); }
+});
+
+function openVideoUpload() {
+  $('#vuUrl').value = '';
+  $('#vuSend').disabled = true;
+  $('#vuProg').style.display = 'none';
+  catOptions($('#vuCat'), videoCats, videoFilter.startsWith('cat:') ? videoFilter.slice(4) : '', '+ Neue Kategorie …');
+  $('#vuCatNew').hidden = true;
+  $('#vuCatNew').value = '';
+  $('#vupload').classList.add('open');
+  setTimeout(() => $('#vuUrl').focus(), 50);
+}
+$('#vuUrl').addEventListener('input', () => { $('#vuSend').disabled = !$('#vuUrl').value.trim(); });
+$('#vuUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter' && $('#vuUrl').value.trim()) $('#vuSend').click(); });
+$('#vuCat').addEventListener('change', (e) => { $('#vuCatNew').hidden = e.target.value !== '__new'; if (e.target.value === '__new') $('#vuCatNew').focus(); });
+$('#vuCancel').addEventListener('click', () => $('#vupload').classList.remove('open'));
+$('#vupload').addEventListener('click', (e) => { if (e.target.id === 'vupload') $('#vupload').classList.remove('open'); });
+$('#vuSend').addEventListener('click', async () => {
+  // Link aus geteiltem Text herausfischen („Schau mal: https://youtu.be/…“)
+  const raw = $('#vuUrl').value.trim();
+  const url = (raw.match(/https?:\/\/\S+/) || [raw])[0];
+  const catSel = $('#vuCat').value;
+  const category = catSel === '__new' ? $('#vuCatNew').value.trim() : catSel;
+  const btn = $('#vuSend');
+  btn.disabled = true;
+  btn.textContent = 'Wird geladen …';
+  $('#vuProg').style.display = 'block';
+  $('#vuProg').classList.add('busy');
+  try {
+    await woolPost('api/videos', { url, category });
+    $('#vupload').classList.remove('open');
+    toast('Video hinzugefügt');
+    await load();
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    $('#vuProg').classList.remove('busy');
+    $('#vuProg').style.display = 'none';
+    btn.textContent = 'Hinzufügen';
+    btn.disabled = false;
+  }
+});
 
 // ---------- Wolle ----------
 let wCurrent = null;
