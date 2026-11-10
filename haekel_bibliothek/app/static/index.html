@@ -211,6 +211,9 @@
   .tabs button.on { background: var(--accent); color: var(--on-accent); }
   .card.wool .thumb { aspect-ratio: 1 / 1; }
   .card.video .thumb { aspect-ratio: 16 / 9; }
+  /* Videos sind flach (16:9) – breitere Spalten, damit die Vorschaubilder ähnlich groß wirken wie die Woll-Kacheln */
+  .grid.videos { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+  @media (min-width: 700px) { .grid.videos { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); } }
   .card.video .thumb img.main { object-fit: cover; }
   .play { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; pointer-events: none; }
   .play span { width: 46px; height: 46px; border-radius: 50%; background: rgba(0,0,0,.55); display: grid; place-items: center; }
@@ -773,6 +776,7 @@ function renderVideos() {
 }
 
 function render() {
+  $('#grid').classList.toggle('videos', section === 'videos');
   $('#tabs').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.t === section));
   if (section === 'wool') return renderWool();
   if (section === 'videos') return renderVideos();
